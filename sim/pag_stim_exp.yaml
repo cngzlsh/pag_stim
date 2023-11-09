@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------- #
+#                                   SETTINGS                                   #
+# ---------------------------------------------------------------------------- #
+experiment_name: pag_stim  # used to choose the python class implementing the experiment
+duration:   1.200 # second | duration of simulation
+dt: 0.001 #0.001  # seconds | simulation step duration
+stimulus_dt: 0.2 # milliseconds | dt for stimulus computation
+
+random_seed: 0
+
+# ---------------------------- stimulus parameters ---------------------------- #
+use_pulse:   false 
+stim_start_t:  0.100  # seconds
+stim_end_t: 1.100 # seconds
+stim_strength: 10 #10 # 50 # 50  # nano ampers
+stimulus_center_deg:    0 #  342 
+stimulus_width_deg: 0
+
+
+
+use_train: false
+step_every: .049 # seconds | frequency of train stimuli
+step_duration: .001  # seconds
+train_strength: 50 #50 #10 #50 # 0.3 #10 #0.3  # nano ampers
+
+
+use_pulse_spont:    false
+lambda_p: 200 # 200 # 50 # 50  # nano ampers

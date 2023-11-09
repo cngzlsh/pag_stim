@@ -1,0 +1,328 @@
+# --------------------------------- METADATA --------------------------------- #
+experiment: block
+save_path: './save'
+save_name: pagsim
+save_format: npy  # npy or mat
+b2_DEBUG: false  # keep brian2 debug logs?
+
+# ---------------------------------- PARAMS ---------------------------------- #
+# number of neurons
+n_vmh: 100
+n_acc: 1
+n_ic: 1
+n_sc: 1
+n_pmd: 1
+
+n_pag: 1
+
+
+# external Poisson spiking units
+n_external: 500  # for each of the 5 populations
+external_firing_rate: 
+  vmh: 25 #1 #1  # Hz
+  acc: 0 #1.53 #1.6 #1.4  # Hz
+  ic: 0 #.3 # 0.3  # Hz
+  sc: 0
+  pmd: 0
+
+# connectivity
+synapses_probability:  # probability of synapses between two populations
+  vmh2pag: 1
+  acc2pag: 0.25
+  ic2pag: 0.25
+  sc2pag: 0.25
+  pmd2pag: 0.25
+  # requires experimental backing
+
+target_synapse_silencing_probability: 
+# probability that a PAG neuron receives no inputs from a source population at all.
+  vmh2pag: 0
+  acc2pag: 0.25
+  ic2pag: 0.25
+  sc2pag: 0.25
+  pmd2pag: 0.25
+
+source_synapse_silencing_probability:
+# probability that a source neuron does not project to any PAG neuron at all.
+  vmh2pag: 0
+  acc2pag: 0.25
+  ic2pag: 0.25
+  sc2pag: 0.25
+  pmd2pag: 0.25
+
+
+connectivity_kernel:  # (ones, diagonal, inverted_diagonal) or none
+  # rsp2vglut:    diagonal   
+  # rsp2vgat:     inverted_diagonal  
+  # vgat2vglut:   diagonal 
+  # vgat2vgat:    ones  
+  # vglut2vglut:  diagonal #TRY to make this oones or vglut kernel whider
+  # vglut2vgat:   ones 
+  vmh2pag: none
+  acc2pag: none
+  ic2pag: none
+  sc2pag: none
+  pmd2pag: none
+
+
+connectivity_kernel_width:  # width (std) of the kernel in degrees 
+  # rsp2vglut:    10  
+  # rsp2vgat:     10  
+  # vgat2vglut:   10
+  # vgat2vgat:    1  # doesn't matter for 'ones' kernel
+  # vglut2vglut:  100
+  # vglut2vgat:   1  # doesn't matter for 'ones' kernel
+  # does not matter if kernel is set to none
+  vmh2pag: 10
+  acc2pag: 10
+  ic2pag: 10
+  sc2pag: 10
+  pmd2pag: 10
+
+# rsp -> vgat synapses mode
+# rsp2vglut_random_connections: false  # true for random, false for diagonal
+
+enabled_synapses:  # turn off/on certain connections
+  # rsp2vglut:    true 
+  # rsp2vgat:     true
+  # vgat2vglut:   true
+  # vgat2vgat:    false 
+  # vglut2vglut:  true
+  # vglut2vgat:   false
+  vmh2pag: True
+  acc2pag: True
+  ic2pag: True
+  sc2pag: True
+  pmd2pag: True
+
+# -------------------------------- synapse properties -------------------------------- #
+
+#rsp->vgat
+#g 2.666504128511661
+#cm0.0392278567896611
+#estimated from patching
+#g_early, tau1_early, tau2_early [0.638, 0.689, 0.718]
+#g_late, tau1_late, tau2_late [0.007, 62.363, 33.011]
+
+#rsp->vglut
+#g 17.858398979929493
+#cm 0.04677280087731127
+#g_early, tau1_early, tau2_early [0.386, 2.413, 3.384]
+#g_early, tau1_early, tau2_early [ 0.204, 10.0, 9.772]
+
+#rsp->vgat
+#g 2.666504128511661
+#cm0.0392278567896611
+#g_early, tau1_early, tau2_early [745, 5, 6]
+#g_early, tau1_early, tau2_early [ 100, 40, 30]
+
+
+# gmax ratio should be fixed, just scale them
+
+stype: # biExp: two-component bi-exponential synapse; event-driven (Fede synapses): step conductance increase: they only use gmax_early and tau2_early 
+  # rsp2vglut:    "biExp"
+  # rsp2vgat:     "biExp"
+  # vgat2vglut:   "biExp"
+  # vgat2vgat:    "event-driven" 
+  # vglut2vglut:  "event-driven"
+  # vglut2vgat:   "event-driven"
+  vmh2pag:   "event-driven"
+  acc2pag:   "event-driven"
+  ic2pag:    "event-driven"
+  sc2pag:    "event-driven"
+  pmd2pag:   "event-driven"
+
+E_rev:
+  AMPA: 0
+  GABA: -70
+
+synapse_gmax_noise_std:  # std of noise for synapses
+  # rsp2vglut:    0 # .001 # 
+  # rsp2vgat:     0 # .001 # 
+  # vgat2vglut:   0 # .001 # 
+  # vgat2vgat:    0 # .001 # 
+  # vglut2vglut:  0 # .001
+  # vglut2vgat:   0 # .001
+  vmh2pag:   1
+  acc2pag:   2
+  ic2pag:    1
+  sc2pag:    3
+  pmd2pag:   1
+
+
+synapse_gmax_scaling: #multiplies both gmax early and late 
+  # rsp2vglut:    0.06 #before model fitting .018 #optimize withou plasticty: 0.024 #
+  # rsp2vgat:     0.004 # 0.0028 # before model fitting 0.00215 #0.08 used to estimate vgat to vglut in patch clamp with E-30 and th at 0
+  # vgat2vglut:  0.004 #0.002 # #before model fitting 0.000022 #optimize withou plasticty:  .000019 #
+  # vgat2vgat:    1 #
+  # vglut2vglut:  1 #
+  # vglut2vgat:   1 #
+  vmh2pag:   2
+  acc2pag:   1
+  ic2pag:    1
+  sc2pag:    2
+  pmd2pag:   2
+
+#### properties of early response component 
+synapse_gmax_early:  # synaptic weights, in nS
+  # rsp2vglut:    .386 #   
+  # rsp2vgat:    .638 # 
+  # vgat2vglut:   745 #
+  # vgat2vgat:    .001 # change to change weights
+  # vglut2vglut:  .11 #change to change weights 
+  # vglut2vgat:   .001 #change to change weights
+  vmh2pag:   5
+  acc2pag:   7
+  ic2pag:    8
+  sc2pag:    4
+  pmd2pag:   2
+
+tau1_early:  # rise time synaptic conductance | in milliseconds
+  # rsp2vglut:    2.413 
+  # rsp2vgat:    .689 # 
+  # vgat2vglut:   5  
+  # vgat2vgat:    1  
+  # vglut2vglut:  1  
+  # vglut2vgat:   1  
+  vmh2pag:   1
+  acc2pag:   1
+  ic2pag:    1
+  sc2pag:    1
+  pmd2pag:   1
+  
+tau2_early:  # Decay time synaptic conductance | in milliseconds
+  # rsp2vglut:    3.384
+  # rsp2vgat:    .718 #  
+  # vgat2vglut:   6  
+  # vgat2vgat:    2  
+  # vglut2vglut:  2  
+  # vglut2vgat:   2
+  vmh2pag:   2
+  acc2pag:   2
+  ic2pag:    2
+  sc2pag:    2
+  pmd2pag:   2
+
+#### properties of late response component (only used if stype = biExp): this is late only if tau1_late>tau1_early and tau2_late>tau2_early
+
+synapse_gmax_late:  # synaptic weights, in nS
+  # rsp2vglut:    .204 # 
+  # rsp2vgat:     .007 # 
+  # vgat2vglut:    100 # 100
+  # vgat2vgat:    .001 #
+  # vglut2vglut:  .1 #
+  # vglut2vgat:   .001 #
+  vmh2pag:   .05
+  acc2pag:   .05
+  ic2pag:    .05
+  sc2pag:    .05
+  pmd2pag:   .05
+
+tau1_late:  # rise time synaptic conductance | in milliseconds
+  # rsp2vglut:    10.0 
+  # rsp2vgat:     62.363 #
+  # vgat2vglut:   40  
+  # vgat2vgat:    1  
+  # vglut2vglut:  1  
+  # vglut2vgat:   1  
+  vmh2pag:   0
+  acc2pag:   0
+  ic2pag:    0
+  sc2pag:    0
+  pmd2pag:   0
+  
+tau2_late:  # Decay time synaptic conductance | in milliseconds
+  # rsp2vglut:    9.772
+  # rsp2vgat:     33.011 # 
+  # vgat2vglut:   30  
+  # vgat2vgat:    2  
+  # vglut2vglut:  2  
+  # vglut2vgat:   2 
+  vmh2pag:   0
+  acc2pag:   0
+  ic2pag:    0
+  sc2pag:    0
+  pmd2pag:   0 
+
+# # -------------------------------- plasticity:  -------------------------------- #
+# # ONLY FOR EARLY COMPONENT, meaning late component does not have plasticity.
+plasticity:  # has to be a string with values: "off", "both", ["stf", "std" they are not existing anymore]
+#   rsp2vglut:    "both" #"both" 
+#   rsp2vgat:     "both" # "both" 
+#   vgat2vglut:   "both"
+#   vgat2vgat:    "off"
+#   vglut2vglut:  "off"
+#   vglut2vgat:   "off" 
+  vmh2pag:   "off"
+  acc2pag:   "off"
+  ic2pag:    "off"
+  sc2pag:    "off"
+  pmd2pag:   "off"
+
+# taud:  # Decay time synaptic depression | in milliseconds
+#   rsp2vglut:    250
+#   rsp2vgat:     30
+#   vgat2vglut:   250
+#   vgat2vgat:    100
+#   vglut2vglut:  100
+#   vglut2vgat:   100
+
+# tauf:  # Decay time synaptic facilitation | in milliseconds
+#   rsp2vglut:    1  
+#   rsp2vgat:     200 
+#   vgat2vglut:   30  
+#   vgat2vgat:    10  
+#   vglut2vglut:  10  
+#   vglut2vgat:   10  
+
+U_experimental: # proportion of trials with non-failures (measured experimentally)
+  # rsp2vglut:    .81
+  # rsp2vgat:     .52
+  # vgat2vglut:   .61
+  # vgat2vgat:    1
+  # vglut2vglut:  1
+  # vglut2vgat:   1
+  vmh2pag:   1
+  acc2pag:   1
+  ic2pag:    1
+  sc2pag:    1
+  pmd2pag:   1
+
+U:  # Release probability (increment?)
+  # rsp2vglut:    .1
+  # rsp2vgat:     .1
+  # vgat2vglut:   .65
+  # vgat2vgat:    1
+  # vglut2vglut:  1
+  # vglut2vgat:   1
+  vmh2pag:   1
+  acc2pag:   1
+  ic2pag:    1
+  sc2pag:    1
+  pmd2pag:   1
+
+u:  # Fraction of available resources ready for use (release probability - it should be the same of big U)
+#   rsp2vglut:    .01
+#   rsp2vgat:     0.01
+#   vgat2vglut:   .1
+#   vgat2vgat:    .1
+#   vglut2vglut:  .1
+#   vglut2vgat:   .1
+  vmh2pag:   .1
+  acc2pag:   .1
+  ic2pag:    .1
+  sc2pag:    .1
+  pmd2pag:   .1
+
+X:  # Fraction of resources that remain available after neurotransmitter depletion 
+  # rsp2vglut:    1
+  # rsp2vgat:     1
+  # vgat2vglut:   1
+  # vgat2vgat:    1
+  # vglut2vglut:  1
+  # vglut2vgat:   1
+  vmh2pag:   0
+  acc2pag:   0
+  ic2pag:    0
+  sc2pag:    0
+  pmd2pag:   0
