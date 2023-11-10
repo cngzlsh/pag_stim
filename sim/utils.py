@@ -53,6 +53,7 @@ def plot_rasters(pops, mode='all'):
                         src_t.append(pop.spikes.i[spike_idx])
 
                 ax.scatter(spike_t / ms, src_t, s=5, color=color)
+        
 
     # plot inputs to population
     if pops[0].inputs_monitor is not None:
@@ -78,7 +79,7 @@ def plot_rasters(pops, mode='all'):
             yticks=[0, pop.n / 2, pop.n],
             yticklabels=["0", f"{pop.n/2}", f"{pop.n}"],
         )
-    plt.show()
+    plt.savefig('./figs/rasters.png')
 
 def plot_weight_matrices(pops):
 
@@ -101,10 +102,7 @@ def plot_weight_matrices(pops):
         xlabel=f"{pop.synapses.target.name} neuron index",
         ylabel=f"{pop.name} neuron index",
     )
-    plt.show()
-
-
-
+    plt.savefig('./figs/weight_matrices.png')
 
 
 def plot_voltages(pops, expt_params, plot_synaptic_current='', plot_expt_inputs_from = ''):
@@ -199,7 +197,6 @@ def plot_voltages(pops, expt_params, plot_synaptic_current='', plot_expt_inputs_
     #         xlim=[0, pops[2].voltages.t[-1] / ms],
     #         xlabel="time (ms)",
     #     )
-    plt.show()
 
 def plot_single_neuron_V_trace(pop, idx='random'):
     if idx == 'random':
@@ -218,14 +215,8 @@ def plot_single_neuron_V_trace(pop, idx='random'):
     plt.axhline(pop.threshold_v / mV, lw=2, color="k", ls="--")
     plt.axhline(pop.reset_v / mV, lw=2, color="k")
     plt.title(f'Voltage trace for {pop_name} neuron {idx}')
-    plt.show()
-
+    plt.savefig('./figs/pag_vtrace.png')
     # to be completed
-
-    
-    
-
-
 
 '''
 The following plotting functions are implemented by Dario and are unchanged.

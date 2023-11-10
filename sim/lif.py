@@ -392,7 +392,7 @@ class conductancebasedLIF:
             np.arange(self.synapses.target.N) * np.random.binomial(n=1, p=target_synapse_silencing_probability, size=self.synapses.target.N)
             )
         for i, tgt in enumerate(_to):
-            if tgt in silenced_targets:
+            if tgt < 0 and tgt in silenced_targets:
                 weights[i] = 0
                 _silenced_connection_count += 1
 
@@ -401,7 +401,7 @@ class conductancebasedLIF:
             np.arange(self.synapses.source.N) * np.random.binomial(n=1, p=source_synapse_silencing_probability, size=self.synapses.source.N)
             )
         for j, src in enumerate(_from):
-            if src in silenced_sources:
+            if src > 0 and src in silenced_sources:
                 weights[j] = 0
                 _silenced_connection_count += 1
                 

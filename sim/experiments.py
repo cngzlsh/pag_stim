@@ -5,6 +5,10 @@ import sys
 from tpd import recorder as _recorder
 import utils
 from neurons import PAG
+import utils
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 from fcutils.path import from_yaml
 
@@ -93,12 +97,10 @@ class Experiment:
         # for plotting exptal traces, string should be in format: 'pre2post_inputs'
 
         # summary plots
-        if 'rasters' in list_of_plots: utils.plot_rasters(self.model.neuron_populations, mode='projection only')
-        # if 'voltages' in list_of_plots: utils.plot_voltages(self.model.neuron_populations, self.params)
+        if 'rasters' in list_of_plots: utils.plot_rasters(self.model.neuron_populations, mode='all')
+        if 'voltages' in list_of_plots: utils.plot_voltages(self.model.neuron_populations, self.params)
         if 'single_PAG_neuron_V_trace' in list_of_plots: utils.plot_single_neuron_V_trace(self.model.PAG)
         if 'weight_matrices' in list_of_plots: utils.plot_weight_matrices(self.model.neuron_populations)
-
-
         input_fitting_list = [x for x in list_of_plots if 'inputs' in x]
         
         
