@@ -11,7 +11,7 @@ all_timings = []
 all_binned_spikes = []
 brain_regions = [
                 'VMH',
-                # 'ACC',
+                'ACC',
                 # 'IC',
                 # 'SC',
                 # 'PMD'
@@ -68,6 +68,9 @@ else:
     glm = BernoulliGLMPyTorch(
         n_neurons_per_group=np.array([len(df) for df in all_dfs]),
         link_fn='logistic',
-        reg_params=1
+        reg_params=0.01,
         ).to(device)
-    glm.fit(X.T, y.T, n_iter=10000, lr=1e-3, verbose=1)
+    glm.fit(X.T, y.T, n_iter=3000, lr=1e-3, verbose=1)
+    print(glm.calc_group_statistics())
+    glm.load_best_params()
+    print(glm.calc_group_statistics())

@@ -1,6 +1,7 @@
 from matplotlib.pylab import logistic
 import numpy as np
 from loguru import logger
+import copy
 
 class BernoulliGLM():
     def __init__(self, n_neurons_per_group, link_fn='logistic', init_strategy='gaussian', seed=0):
@@ -216,8 +217,8 @@ class BernoulliGLMPyTorch(nn.Module):
         group_stds = torch.zeros(len(self.n_neurons_per_group))
         
         for m, n in enumerate(self.neuron_group_cumsum[:-1]):
-            group_means[m] = torch.mean(self.weights[self.neuron_group_cumsum[m]: self.neuron_group_cumsum[m+1]])
-            group_stds[m] = torch.std(self.weights[self.neuron_group_cumsum[m]: self.neuron_group_cumsum[m+1]])
+            group_means[m] = torch.mean(self.linear.weight.data[0, self.neuron_group_cumsum[m]: self.neuron_group_cumsum[m+1]])
+            group_stds[m] = torch.std(self.linear.weight.data[0, self.neuron_group_cumsum[m]: self.neuron_group_cumsum[m+1]])
         
         return group_means, group_stds
 
@@ -227,11 +228,11 @@ class BernoulliGLMPyTorch(nn.Module):
             y = torch.FloatTensor(y).to(device)
             
         reg_term = 0
-        for i, w in enumerate(self.linear.weight.data[:,0]):
+        for i, w in enumerate(self.linear.weight[0,:]):
             m = self.neuron_group_idx[i]
             reg_term += self.reg_params[m] * torch.pow(w, 2) * torch.sum(
                 torch.pow(
-                    self.linear.weight.data[self.neuron_group_cumsum[m]:self.neuron_group_cumsum[m+1]] - w, 2)
+                    self.linear.weight[0, self.neuron_group_cumsum[m]:self.neuron_group_cumsum[m+1]] - w, 2)
                 )
         # (self.weights @ X + self.bias) @ y.T  - np.sum(np.log(1 + np.exp(self.weights @ X + self.bias)))
         return - (self.linear(X).T @ y - torch.sum(torch.log(1 + torch.exp(self.linear(X))))) + reg_term
@@ -242,24 +243,34 @@ class BernoulliGLMPyTorch(nn.Module):
             y = torch.FloatTensor(y).to(device)
         
         with torch.no_grad():
-            logger.debug(f'Training GLM with PyTorch. Initial log like: {self.calc_log_likelihood(X, y)}, inital loss: {self.calc_log_likelihood_w_reg(X, y)}')
+            logger.debug(f'Training GLM with PyTorch. Initial log like: {self.calc_log_likelihood(X, y)}, inital loss: {self.calc_log_likelihood_w_reg(X, y).cpu().float()}')
             
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        self.best_loss = torch.tensor(np.inf)
         for epoch_i in range(n_iter):
             
-            
             loss = self.calc_log_likelihood_w_reg(X, y)
+            if loss.detach().cpu().float() < self.best_loss:
+                self.best_weight = copy.copy(self.linear.weight.data)
+                self.best_bias = copy.copy(self.linear.bias.data)
+                self.best_loss = loss.detach().cpu().float()
             
             if verbose == 2:
                 logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {loss.detach().cpu().float()}')
             elif verbose == 1:
-                if (epoch_i+1) % int(n_iter / 10) == 0:
+                if (epoch_i+1) % int(n_iter / 25) == 0:
                     logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {loss.detach().cpu().float()}')
             
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
-                
+    
+    def load_best_params(self):
+        try:
+            self.linear.weight.data = self.best_weight
+            self.linear.bias.data = self.best_bias
+        except:
+            raise AttributeError('Fit model to data first')
         
 if __name__ == '__main__':
 
@@ -292,4 +303,5 @@ if __name__ == '__main__':
         glm.linear.weight.data = torch.FloatTensor(true_weights).to(device)
         glm.linear.bias.data = torch.FloatTensor([true_bias]).to(device)
         print(glm.calc_log_likelihood(X.T, y.T))
+        
     

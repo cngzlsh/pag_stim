@@ -8,7 +8,7 @@ b2_DEBUG: false  # keep brian2 debug logs?
 # ---------------------------------- PARAMS ---------------------------------- #
 # number of neurons
 n_vmh: 64
-n_acc: 1
+n_acc: 64
 n_ic: 1
 n_sc: 1
 n_pmd: 1
@@ -20,15 +20,15 @@ n_pag: 1
 n_external: 500  # for each of the 5 populations
 external_firing_rate: 
   vmh: 10 #1 #1  # Hz
-  acc: 0 #1.53 #1.6 #1.4  # Hz
+  acc: 10 #1.53 #1.6 #1.4  # Hz
   ic: 0 #.3 # 0.3  # Hz
   sc: 0
   pmd: 0
 
 # connectivity
 synapses_probability:  # probability of synapses between two populations
-  vmh2pag: 1
-  acc2pag: 0.25
+  vmh2pag: 0.5
+  acc2pag: 0.5
   ic2pag: 0.25
   sc2pag: 0.25
   pmd2pag: 0.25
@@ -36,7 +36,7 @@ synapses_probability:  # probability of synapses between two populations
 
 target_synapse_silencing_probability: 
 # probability that a PAG neuron receives no inputs from a source population at all.
-  vmh2pag: 0
+  vmh2pag: 0.1
   acc2pag: 0.1
   ic2pag: 0.1
   sc2pag: 0.1
@@ -44,7 +44,7 @@ target_synapse_silencing_probability:
 
 source_synapse_silencing_probability:
 # probability that a source neuron does not project to any PAG neuron at all.
-  vmh2pag: 0
+  vmh2pag: 0.1
   acc2pag: 0.1
   ic2pag: 0.1
   sc2pag: 0.1
@@ -185,7 +185,7 @@ tau1_early:  # rise time synaptic conductance | in milliseconds
   # vglut2vglut:  1  
   # vglut2vgat:   1  
   vmh2pag:   1
-  acc2pag:   1
+  acc2pag:   2
   ic2pag:    1
   sc2pag:    1
   pmd2pag:   1
