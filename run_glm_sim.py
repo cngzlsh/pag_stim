@@ -1,9 +1,10 @@
 import numpy as np
-from glm import BernoulliGLM, BernoulliGLMwReg
+from glm import BernoulliGLM, BernoulliGLMwReg, BernoulliGLMPyTorch
 import pandas as pd
 from preprocess_data import *
 
 sim_data_path = './sim/save/pagsim/'
+use_torch = True
 
 all_dfs = []
 all_timings = []
@@ -40,20 +41,33 @@ X = np.repeat(X_ones_step, len(pag_df), axis=1) # repeat input timings (n_PAG_ne
 y = pag_binned_spikes.swapaxes(0,1).reshape(1,-1) # flatten all pag neurons out to (1, T * n_PAG_neurons)
 assert X.shape[1] == y.shape[1]
 
-glm = BernoulliGLMwReg(
-    n_neurons_per_group=np.array([len(df) for df in all_dfs]),
-    reg_params = 0 * np.ones(len(brain_regions)),
-    link_fn='logistic',
-    init_strategy='gaussian',
-    seed=123,
-    reg='min_weights_within_group'
-    )
+if not use_torch:
 
-glm.fit(X, y,
-        mode='sgd', 
-        n_iter=250,
-        lr=5*1e-5,
-        decay=0.99,
-        threshold=1e-2,
-        verbose=2)
+    glm = BernoulliGLMwReg(
+        n_neurons_per_group=np.array([len(df) for df in all_dfs]),
+        reg_params = 0 * np.ones(len(brain_regions)),
+        link_fn='logistic',
+        init_strategy='gaussian',
+        seed=123,
+        reg='min_weights_within_group'
+        )
 
+    glm.fit(X, y,
+            mode='sgd', 
+            n_iter=250,
+            lr=0.0001,
+            decay=0.99,
+            threshold=1e-2,
+            verbose=1)
+else:    
+    import torch
+    import torch.nn as nn
+    import torch.distributions as dist
+    
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    glm = BernoulliGLMPyTorch(
+        n_neurons_per_group=np.array([len(df) for df in all_dfs]),
+        link_fn='logistic',
+        reg_params=1
+        ).to(device)
+    glm.fit(X.T, y.T, n_iter=10000, lr=1e-3, verbose=1)
