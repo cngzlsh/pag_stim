@@ -12,9 +12,9 @@ all_binned_spikes = []
 brain_regions = [
                 'VMH',
                 'ACC',
-                # 'IC',
-                # 'SC',
-                # 'PMD'
+                'IC',
+                'SC',
+                'PMD'
                 ]       
 
 # extract all input spikes and bin them
@@ -68,9 +68,13 @@ else:
     glm = BernoulliGLMPyTorch(
         n_neurons_per_group=np.array([len(df) for df in all_dfs]),
         link_fn='logistic',
-        reg_params=0.01,
+        reg_params=0.1,
         ).to(device)
-    glm.fit(X.T, y.T, n_iter=3000, lr=1e-3, verbose=1)
-    print(glm.calc_group_statistics())
+    
+    glm.fit(X.T, y.T, n_iter=10000, lr=1e-3, verbose=1)
     glm.load_best_params()
-    print(glm.calc_group_statistics())
+    
+    plt.matshow(glm.best_weight.detach().cpu().numpy())
+    plt.colorbar()
+    
+    assert False

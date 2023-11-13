@@ -1,6 +1,6 @@
 # --------------------------------- METADATA --------------------------------- #
 experiment: block
-save_path: './sim/save'
+save_path: './save'
 save_name: pagsim
 save_format: npy  # npy or mat
 b2_DEBUG: false  # keep brian2 debug logs?
@@ -9,11 +9,11 @@ b2_DEBUG: false  # keep brian2 debug logs?
 # number of neurons
 n_vmh: 64
 n_acc: 64
-n_ic: 1
-n_sc: 1
-n_pmd: 1
+n_ic: 64
+n_sc: 64
+n_pmd: 64
 
-n_pag: 1
+n_pag: 2
 
 
 # external Poisson spiking units
@@ -21,14 +21,14 @@ n_external: 500  # for each of the 5 populations
 external_firing_rate: 
   vmh: 10 #1 #1  # Hz
   acc: 10 #1.53 #1.6 #1.4  # Hz
-  ic: 0 #.3 # 0.3  # Hz
-  sc: 0
-  pmd: 0
+  ic: 10 #.3 # 0.3  # Hz
+  sc: 10
+  pmd: 10
 
 # connectivity
 synapses_probability:  # probability of synapses between two populations
-  vmh2pag: 0.5
-  acc2pag: 0.5
+  vmh2pag: 0.25
+  acc2pag: 0.25
   ic2pag: 0.25
   sc2pag: 0.25
   pmd2pag: 0.25
@@ -147,7 +147,7 @@ synapse_gmax_noise_std:  # std of noise for synapses
   acc2pag:   2
   ic2pag:    1
   sc2pag:    3
-  pmd2pag:   1
+  pmd2pag:   2
 
 
 synapse_gmax_scaling: #multiplies both gmax early and late 
@@ -175,7 +175,7 @@ synapse_gmax_early:  # synaptic weights, in nS
   acc2pag:   7
   ic2pag:    8
   sc2pag:    4
-  pmd2pag:   2
+  pmd2pag:   12
 
 tau1_early:  # rise time synaptic conductance | in milliseconds
   # rsp2vglut:    2.413 

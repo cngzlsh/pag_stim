@@ -166,6 +166,7 @@ class BernoulliGLMwReg(BernoulliGLM):
                         logger.debug(f'Step {i+1}. Log likelihood: {self.calc_log_likelihood(X, y).flatten()}; loss: {self.calc_cost(X,y).flatten()}')
 
         elif mode == 'newton':
+            i=0
             raise NotImplementedError('I think the memory requirement is too big for this, also I cba to compute the second derivative by hand')
         
         logger.debug(f'Training complete at {i+1} steps. Log likelihood: {self.calc_log_likelihood(X, y).flatten()}; loss: {self.calc_cost(X,y).flatten()}')
@@ -228,22 +229,33 @@ class BernoulliGLMPyTorch(nn.Module):
             y = torch.FloatTensor(y).to(device)
             
         reg_term = 0
-        for i, w in enumerate(self.linear.weight[0,:]):
-            m = self.neuron_group_idx[i]
-            reg_term += self.reg_params[m] * torch.pow(w, 2) * torch.sum(
-                torch.pow(
-                    self.linear.weight[0, self.neuron_group_cumsum[m]:self.neuron_group_cumsum[m+1]] - w, 2)
-                )
+        # for i, w in enumerate(self.linear.weight[0,:]):
+        #     m = self.neuron_group_idx[i]
+        #     reg_term += self.reg_params[m] * torch.abs(w) * torch.sum(
+        #         torch.pow(
+        #             self.linear.weight[0, self.neuron_group_cumsum[m]:self.neuron_group_cumsum[m+1]] - w, 2)
+        #         )
         # (self.weights @ X + self.bias) @ y.T  - np.sum(np.log(1 + np.exp(self.weights @ X + self.bias)))
+        for m in range(len(self.n_neurons_per_group)):
+            w = self.linear.weight[:, self.neuron_group_cumsum[m]:self.neuron_group_cumsum[m+1]]
+            reg_term += self.reg_params[m] * torch.sum(
+                torch.pow(w, 2) \
+                @ torch.pow((w - w.T), 2)
+                )
+        
         return - (self.linear(X).T @ y - torch.sum(torch.log(1 + torch.exp(self.linear(X))))) + reg_term
     
     def fit(self, X, y, n_iter, lr=1e-3, verbose=1):
+        '''
+        verbose:    -1: prints nothing; 0: prints initial and final losses; 1: prints 20 steps; 2: prints all steps.
+        '''
         if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
             X = torch.FloatTensor(X).to(device)
             y = torch.FloatTensor(y).to(device)
         
-        with torch.no_grad():
-            logger.debug(f'Training GLM with PyTorch. Initial log like: {self.calc_log_likelihood(X, y)}, inital loss: {self.calc_log_likelihood_w_reg(X, y).cpu().float()}')
+        if verbose > -1:
+            with torch.no_grad():
+                logger.debug(f'Training GLM with PyTorch. Initial log like: {self.calc_log_likelihood(X, y)}, inital loss: {self.calc_log_likelihood_w_reg(X, y).cpu().float()}')
             
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         self.best_loss = torch.tensor(np.inf)
@@ -251,19 +263,25 @@ class BernoulliGLMPyTorch(nn.Module):
             
             loss = self.calc_log_likelihood_w_reg(X, y)
             if loss.detach().cpu().float() < self.best_loss:
+                best_log_like = self.calc_log_likelihood(X, y)
+                best_epoch_i = epoch_i + 1
                 self.best_weight = copy.copy(self.linear.weight.data)
                 self.best_bias = copy.copy(self.linear.bias.data)
                 self.best_loss = loss.detach().cpu().float()
             
             if verbose == 2:
-                logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {loss.detach().cpu().float()}')
+                logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {float(loss.detach().cpu().numpy())}')
             elif verbose == 1:
-                if (epoch_i+1) % int(n_iter / 25) == 0:
-                    logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {loss.detach().cpu().float()}')
+                if (epoch_i+1) % int(n_iter / 20) == 0:
+                    logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {float(loss.detach().cpu().numpy())}')
             
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
+        
+        if verbose > -1:
+            with torch.no_grad():
+                logger.debug(f'Training complete with best log like: {best_log_like}, best loss: {self.best_loss} at epoch {best_epoch_i}.')
     
     def load_best_params(self):
         try:

@@ -7,8 +7,8 @@ from models import FeedForwardModel
 import matplotlib.pyplot as plt
 import numpy as np
 
-EXP_PARAMS_FILES = './sim/pag_stim_exp.yaml'
-MODEL_PARAMS_FILES = './sim/feedforward.yaml'
+EXP_PARAMS_FILES = './pag_stim_exp.yaml'
+MODEL_PARAMS_FILES = './feedforward.yaml'
 
 EXPERIMENTS = dict(pag_stim=SimulationExperiment)
 

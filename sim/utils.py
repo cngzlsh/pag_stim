@@ -83,9 +83,10 @@ def plot_rasters(pops, mode='all'):
 
 def plot_weight_matrices(pops):
 
+    mats = []
     f, axes = plt.subplots(ncols=len(pops)-1, figsize=(12, 9), sharey=True)
     f._save_name = "spikes_rasters"
-    f.suptitle("Weight matrices")
+    f.suptitle("Weight matrices of projections (in nS)")
     clean_axes(f)
     for ax, pop in zip(axes, pops):
         if isinstance(pop, PAG):
@@ -93,16 +94,22 @@ def plot_weight_matrices(pops):
         mat = np.zeros((pop.synapses.source.N, pop.synapses.target.N))
         for s, w in enumerate(pop.synapses.w):
             mat[pop.synapses.i[s], pop.synapses.j[s]] = w
-        ax.matshow(mat, cmap='Blues')
+        s = ax.matshow(mat * 1e9, cmap='Blues')
+        
+        f.colorbar(s, orientation='horizontal')
+    
+    mats.append(mat * 1e9)
     
     for i, pop in enumerate(pops[:-1]):
         axes[i].set(
         xlim=[0, pop.synapses.target.N],
-        ylim=[0, pop.n],
+        ylim=[0, np.max([pop.n for pop in pops[:-1]])],
         xlabel=f"{pop.synapses.target.name} neuron index",
         ylabel=f"{pop.name} neuron index",
-    )
+        )
+        
     plt.savefig('./figs/weight_matrices.png')
+    return mats
 
 
 def plot_voltages(pops, expt_params, plot_synaptic_current='', plot_expt_inputs_from = ''):
