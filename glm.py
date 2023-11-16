@@ -245,7 +245,7 @@ class BernoulliGLMPyTorch(nn.Module):
         
         return - (self.linear(X).T @ y - torch.sum(torch.log(1 + torch.exp(self.linear(X))))) + reg_term
     
-    def fit(self, X, y, n_iter, lr=1e-3, verbose=1):
+    def fit(self, X, y, n_iter, lr=1e-3, verbose=1, decay=None):
         '''
         verbose:    -1: prints nothing; 0: prints initial and final losses; 1: prints 20 steps; 2: prints all steps.
         '''
@@ -258,7 +258,10 @@ class BernoulliGLMPyTorch(nn.Module):
                 logger.debug(f'Training GLM with PyTorch. Initial log like: {self.calc_log_likelihood(X, y)}, inital loss: {self.calc_log_likelihood_w_reg(X, y).cpu().float()}')
             
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        if decay is not None:
+            scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay)
         self.best_loss = torch.tensor(np.inf)
+        
         for epoch_i in range(n_iter):
             
             loss = self.calc_log_likelihood_w_reg(X, y)
@@ -277,6 +280,8 @@ class BernoulliGLMPyTorch(nn.Module):
             
             loss.backward()
             optimizer.step()
+            if decay is not None:
+                scheduler.step()
             optimizer.zero_grad()
         
         if verbose > -1:

@@ -97,10 +97,10 @@ class Experiment:
         # for plotting exptal traces, string should be in format: 'pre2post_inputs'
 
         # summary plots
-        if 'rasters' in list_of_plots: utils.plot_rasters(self.model.neuron_populations, mode='all')
+        if 'rasters' in list_of_plots: utils.plot_rasters(self.model.neuron_populations, mode='all', path='./figs/'+self.name+'/')
         if 'voltages' in list_of_plots: utils.plot_voltages(self.model.neuron_populations, self.params)
-        if 'single_PAG_neuron_V_trace' in list_of_plots: utils.plot_single_neuron_V_trace(self.model.PAG)
-        if 'weight_matrices' in list_of_plots: utils.plot_weight_matrices(self.model.neuron_populations)
+        if 'single_PAG_neuron_V_trace' in list_of_plots: utils.plot_single_neuron_V_trace(self.model.PAG, path='./figs/'+self.name+'/')
+        if 'weight_matrices' in list_of_plots: utils.plot_weight_matrices(self.model.neuron_populations, path='./figs/'+self.name+'/')
         input_fitting_list = [x for x in list_of_plots if 'inputs' in x]
         
         
@@ -258,5 +258,87 @@ class SimulationExperiment(Experiment):
             return spikes * 1
         
         evoked_spikes = [homogeneous_poisson(self.params["lambda_p"], self.params["stim_end_t"] - self.params["stim_start_t"] , self.params["stimulus_dt"]) for i in range(pop.neurons._N)]
+
+        return np.array(evoked_spikes)
+
+
+class ExternalPulseExperiment(Experiment):
+    STIM_STATUS = 'off'
+    train_start = 0 * b2.second
+    train_end = 0 * b2.second
+    
+    name = 'feed forward spontaneous simulation experiment with external stimuli'
+    description = 'simulating feed forward models into the PAG from ACC, VMH, IC, SC, PMd, but with external pulses from half time onwards'
+    
+    def __init__(self, model_class, model_params_path, exp_params_path):
+        super().__init__(
+            model_class, model_params_path, exp_params_path, name="Pulses"
+        )
+        if self.params["use_pulse_spont"]:
+            self.evoked_poisson_spiketrain = []
+            for i, population in enumerate(self.model.neuron_populations):
+                if population is None or isinstance(population, PAG):
+                    self.evoked_poisson_spiketrain.append(None)
+                else:
+                    self.evoked_poisson_spiketrain.append(self._pregenerate_poisson_stimulation_times(population))
+            self.stim_bin_i=0
+    
+    def stimuli_func(self, t):
+        
+        '''
+        1)Simulate X seconds with Brian. In this case the X second would be split into two consecutive epochs: first part spontaneous activity,
+        second part a series of train of pulses, simulating some stimuli coming into the neurons.
+        You could do things like 100 1 sec long 10Hz pulse trains, with an ITI of 1 sec.
+        For the pulses you can increase the spontaneous activity of the neurons for like 20 ms.
+        2)Use the spontaneous activity part to generate a training set and fit the GLM with that.
+        3) Use the pulse epoch of the presynaptic activity to predict the activity of the PAG neuron with the GLM you fitted in 2.
+        '''
+        time = t.variable.get_value()[0] * b2.second
+        t_start = self.params["stim_start_t"] * 1000 * b2.ms
+        t_end = self.params["stim_end_t"] * 1000 * b2.ms
+        stimulus_strength = self.params["stim_strength"] * b2.namp
+        train_strength = self.params["train_strength"] * b2.namp
+        
+        # start/stop stimulus
+        if t >= t_start and t < t_end and self.params["use_pulse"]:
+            if self.STIM_STATUS == "off":
+                logger.debug(f" === Stimulus ON at time: {time}")
+                self.STIM_STATUS = "on"
+                
+            for i, population in enumerate(self.model.neuron_populations):
+                if population is not None and not isinstance(population, PAG):
+                    population.neurons.I_stim = stimulus_strength * self.evoked_poisson_spiketrain[i][:, self.stim_bin_i]
+            self.stim_bin_i +=1
+    
+        # start/stop stimulus spont
+        if t >= t_start and t < t_end and self.params["use_pulse_spont"]:
+            # self.stim_target_idx = [[list(np.arange(pop.neurons._N))] for pop in self.model.neuron_populations[:-1]]
+            if self.STIM_STATUS == "off":
+                #logger.debug(f" === Stimulus ON at time: {time}")
+                self.STIM_STATUS = "on"
+            for i, population in enumerate(self.model.neuron_populations):
+                if population is not None and not isinstance(population, PAG):
+                    population.neurons.I_stim = stimulus_strength * self.evoked_poisson_spiketrain[i][:, self.stim_bin_i]
+    
+    def _pregenerate_poisson_stimulation_times(self, population):
+
+        def homogeneous_poisson(rate, tmax, bin_size):
+            ## https://github.com/btel/python-in-neuroscience-tutorials/blob/master/poisson_process.ipynb
+            #  Bernoulli approximation of homogenous Poisson process. 
+            # Note that for this to work, the bin has to be chosen small enough that at most only a single event can appear within each of them. 
+            # Output is a 1D binary sequence, which is a binned representation of the train of spikes.
+            
+            # from units import Hz, ms, s
+
+            rate = rate * b2.Hz    # spike rate
+            bin_size = bin_size * b2.ms # bin size 
+            tmax = tmax * b2.ms *1000
+
+            nbins = np.floor(tmax/bin_size).astype(int) + 1
+            prob_of_spike = rate * bin_size
+            spikes = np.random.rand(nbins) < prob_of_spike
+            return spikes * 1
+        
+        evoked_spikes = [homogeneous_poisson(self.params["lambda_p"], self.params["stim_end_t"] - self.params["stim_start_t"] , self.params["stimulus_dt"]) for i in range(population.neurons._N)]
 
         return np.array(evoked_spikes)

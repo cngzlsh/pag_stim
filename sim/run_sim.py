@@ -1,16 +1,16 @@
 from fcutils.path import from_yaml
 from tpd import recorder
 
-from experiments import SimulationExperiment
+from experiments import SimulationExperiment, ExternalPulseExperiment
 from models import FeedForwardModel
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-EXP_PARAMS_FILES = './pag_stim_exp.yaml'
+EXP_PARAMS_FILES = './stimuli_exp.yaml'
 MODEL_PARAMS_FILES = './feedforward.yaml'
 
-EXPERIMENTS = dict(pag_stim=SimulationExperiment)
+EXPERIMENTS = dict(pag_stim=SimulationExperiment, pag_external_pulse=ExternalPulseExperiment)
 
 experiment = EXPERIMENTS[from_yaml(EXP_PARAMS_FILES)["experiment_name"]]
 

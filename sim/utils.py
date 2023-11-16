@@ -12,7 +12,7 @@ from fcutils.plot.figure import clean_axes
 plot_every_n_neurons = 1
 dropbox_folder = "./dropbox_folder"
 
-def plot_rasters(pops, mode='all'):
+def plot_rasters(pops, mode='all', path='./figs/'):
     """
         Plots rasters and average trace for each population
     """
@@ -79,9 +79,9 @@ def plot_rasters(pops, mode='all'):
             yticks=[0, pop.n / 2, pop.n],
             yticklabels=["0", f"{pop.n/2}", f"{pop.n}"],
         )
-    plt.savefig('./figs/rasters.png')
+    plt.savefig(path+'rasters.png')
 
-def plot_weight_matrices(pops):
+def plot_weight_matrices(pops, path='./figs/'):
 
     mats = []
     f, axes = plt.subplots(ncols=len(pops)-1, figsize=(12, 9), sharey=True)
@@ -108,7 +108,7 @@ def plot_weight_matrices(pops):
         ylabel=f"{pop.name} neuron index",
         )
         
-    plt.savefig('./figs/weight_matrices.png')
+    plt.savefig(path + 'weight_matrices.png')
     return mats
 
 
@@ -205,7 +205,7 @@ def plot_voltages(pops, expt_params, plot_synaptic_current='', plot_expt_inputs_
     #         xlabel="time (ms)",
     #     )
 
-def plot_single_neuron_V_trace(pop, idx='random'):
+def plot_single_neuron_V_trace(pop, idx='random', path='./figs/'):
     if idx == 'random':
         idx = np.random.randint(pop.n)
     pop_name = pop.neurons.name
@@ -222,7 +222,7 @@ def plot_single_neuron_V_trace(pop, idx='random'):
     plt.axhline(pop.threshold_v / mV, lw=2, color="k", ls="--")
     plt.axhline(pop.reset_v / mV, lw=2, color="k")
     plt.title(f'Voltage trace for {pop_name} neuron {idx}')
-    plt.savefig('./figs/pag_vtrace.png')
+    plt.savefig(path + 'pag_vtrace.png')
     # to be completed
 
 '''

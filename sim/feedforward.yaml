@@ -1,7 +1,7 @@
 # --------------------------------- METADATA --------------------------------- #
 experiment: block
 save_path: './save'
-save_name: pagsim
+save_name: pagsim_external_stimuli
 save_format: npy  # npy or mat
 b2_DEBUG: false  # keep brian2 debug logs?
 
