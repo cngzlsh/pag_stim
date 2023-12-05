@@ -180,20 +180,31 @@ import torch.distributions as dist
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 class BernoulliGLMPyTorch(nn.Module):
-    def __init__(self, n_neurons_per_group, link_fn='logistic', reg_params=0):
+    def __init__(self, n_neurons_per_group, link_fn='logistic', n_sessions=1, reg_params=0):
         super().__init__()
-        self.n_neurons_per_group = n_neurons_per_group
+        self.n_neurons_per_group = n_neurons_per_group # total number of actual neurons per brain region
+        self.n_neurons = np.sum(self.n_neurons_per_group) # total number of actual neurons
+        self.n_groups = len(self.n_neurons_per_group) # total number of brain regions
+        self.n_sessions = n_sessions # total number of sessions to repeat
+        
         if not isinstance(reg_params, torch.FloatTensor):
-            self.reg_params = reg_params * torch.ones(len(self.n_neurons_per_group))
+            self.reg_params = reg_params * torch.ones(self.n_groups)
         else:
             self.reg_params = torch.FloatTensor(reg_params)
-        self.neuron_group_cumsum = np.concatenate(([0], np.cumsum(n_neurons_per_group)))
-        self.neuron_group_idx = np.concatenate([[i for _ in range(self.n_neurons_per_group[i])] for i in range(len(self.n_neurons_per_group))])
+        
+        # cumulative sum of neurons of n_neurons_per_group
+        neuron_group_cumsum = np.concatenate(([0], np.cumsum(n_neurons_per_group))) 
+        
+        # the group index of each neuron, len(n_sessions * n_neurons)
+        self.neuron_group_idx = np.concatenate([np.concatenate([[i for _ in range(self.n_neurons_per_group[i])] for i in range(len(self.n_neurons_per_group))]) for _ in range(n_sessions)]) 
+        # the neuron indices of each group, list of n_group lists, each sublist contains n_session * n_group_neuron indices
+        self.group_neuron_idx = [np.concatenate([np.arange(neuron_group_cumsum[m], neuron_group_cumsum[m+1]) + self.n_neurons * i for i in range(n_sessions)]) for m in range(self.n_groups)]# the neuron index of each group
+        
         self.link_fn = link_fn
-        self.linear = nn.Linear(in_features=np.sum(n_neurons_per_group), out_features=1)
+        self.linear = nn.Linear(in_features=np.sum(n_neurons_per_group) * n_sessions, out_features=1)
         if self.link_fn == 'logistic':
             self.activation = nn.Sigmoid()
-        assert np.sum(self.n_neurons_per_group) == np.prod(self.linear.weight.data.shape)
+        assert np.sum([len(g) for g in self.group_neuron_idx]) == np.prod(self.linear.weight.data.shape)
     
     def forward(self, X):
         '''
@@ -214,12 +225,12 @@ class BernoulliGLMPyTorch(nn.Module):
         '''
         Computes the mean and variance of weights within each neuron group.
         '''
-        group_means = torch.zeros(len(self.n_neurons_per_group))
-        group_stds = torch.zeros(len(self.n_neurons_per_group))
+        group_means = torch.zeros(self.n_groups)
+        group_stds = torch.zeros(self.n_groups)
         
-        for m, n in enumerate(self.neuron_group_cumsum[:-1]):
-            group_means[m] = torch.mean(self.linear.weight.data[0, self.neuron_group_cumsum[m]: self.neuron_group_cumsum[m+1]])
-            group_stds[m] = torch.std(self.linear.weight.data[0, self.neuron_group_cumsum[m]: self.neuron_group_cumsum[m+1]])
+        for m in range(self.n_groups):
+            group_means[m] = torch.mean(self.linear.weight.data[0, self.group_neuron_idx[m]])
+            group_stds[m] = torch.std(self.linear.weight.data[0, self.group_neuron_idx[m]])
         
         return group_means, group_stds
 
@@ -236,8 +247,8 @@ class BernoulliGLMPyTorch(nn.Module):
         #             self.linear.weight[0, self.neuron_group_cumsum[m]:self.neuron_group_cumsum[m+1]] - w, 2)
         #         )
         # (self.weights @ X + self.bias) @ y.T  - np.sum(np.log(1 + np.exp(self.weights @ X + self.bias)))
-        for m in range(len(self.n_neurons_per_group)):
-            w = self.linear.weight[:, self.neuron_group_cumsum[m]:self.neuron_group_cumsum[m+1]]
+        for m in range(self.n_groups):
+            w = self.linear.weight[:, self.group_neuron_idx[m]]
             reg_term += self.reg_params[m] * torch.sum(
                 torch.pow(w, 2) \
                 @ torch.pow((w - w.T), 2)
@@ -258,8 +269,7 @@ class BernoulliGLMPyTorch(nn.Module):
                 logger.debug(f'Training GLM with PyTorch. Initial log like: {self.calc_log_likelihood(X, y)}, inital loss: {self.calc_log_likelihood_w_reg(X, y).cpu().float()}')
             
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-        if decay is not None:
-            scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay)
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay)
         self.best_loss = torch.tensor(np.inf)
         
         for epoch_i in range(n_iter):
@@ -294,6 +304,13 @@ class BernoulliGLMPyTorch(nn.Module):
             self.linear.bias.data = self.best_bias
         except:
             raise AttributeError('Fit model to data first')
+    
+    def _load_state_dict(self, pth_file):
+        # loads state dict, then saves as best weight
+        self.load_state_dict(pth_file)
+        
+        self.best_weight = copy.copy(self.linear.weight.data)
+        self.best_bias = copy.copy(self.linear.bias.data)
         
 if __name__ == '__main__':
 
@@ -303,24 +320,15 @@ if __name__ == '__main__':
     T = 1000
     N = 100
 
-    X = np.random.binomial(n=1, p=.7, size=(N, T))
+    X = np.random.binomial(n=1, p=.7, size=(2*N, T))
 
-    true_weights = np.random.normal(loc=0, scale=1, size=(1, N))
+    true_weights = np.random.normal(loc=0, scale=1, size=(1, 2*N))
     true_bias = np.random.normal()
 
     y = np.random.binomial(1, p=1 / (1 + np.exp(- true_weights @ X + true_bias)))
-
-    # glm = BernoulliGLMwReg(n_neurons_per_group=np.array([N]), reg_params=np.array([0.01]))
-    # glm.random_init_params(X)
-    # glm.fit(X, y, n_iter=200, lr=8*1e-4, decay=0.99)
-    # print(glm.best_cost, glm.best_log_likelihood)
-
-    # glm.weights = true_weights
-    # glm.bias = true_bias
-    # print(glm.calc_log_likelihood(X,y))
     
-    glm = BernoulliGLMPyTorch(n_neurons_per_group=np.array([N])).to(device)
-    glm.fit(X.T, y.T, n_iter=1000, lr=1e-3, verbose=1)
+    glm = BernoulliGLMPyTorch(n_neurons_per_group=np.array([N, N]), n_sessions=3).to(device)
+    glm.fit(np.repeat(X, 3, axis=0).T, y.T, n_iter=1000, lr=1e-3, verbose=1)
     
     with torch.no_grad():
         glm.linear.weight.data = torch.FloatTensor(true_weights).to(device)
