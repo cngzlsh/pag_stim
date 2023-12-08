@@ -300,8 +300,8 @@ class BernoulliGLMPyTorch(nn.Module):
     
     def load_best_params(self):
         try:
-            self.linear.weight.data = self.best_weight
-            self.linear.bias.data = self.best_bias
+            self.linear.weight.data = self.best_weight.to(device)
+            self.linear.bias.data = self.best_bias.to(device)
         except:
             raise AttributeError('Fit model to data first')
     

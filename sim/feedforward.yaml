@@ -1,19 +1,19 @@
 # --------------------------------- METADATA --------------------------------- #
 experiment: block
 save_path: './save'
-save_name: pagsim_external_stimuli
+save_name: pagsim_w_stimuli_1200s
 save_format: npy  # npy or mat
 b2_DEBUG: false  # keep brian2 debug logs?
 
 # ---------------------------------- PARAMS ---------------------------------- #
 # number of neurons
-n_vmh: 64
-n_acc: 64
-n_ic: 64
-n_sc: 64
-n_pmd: 64
+n_vmh: 32
+n_acc: 32
+n_ic: 32
+n_sc: 32
+n_pmd: 32
 
-n_pag: 2
+n_pag: 4
 
 
 # external Poisson spiking units
@@ -27,28 +27,28 @@ external_firing_rate:
 
 # connectivity
 synapses_probability:  # probability of synapses between two populations
-  vmh2pag: 0.25
-  acc2pag: 0.25
+  vmh2pag: 0.30
+  acc2pag: 0.30
   ic2pag: 0.25
-  sc2pag: 0.25
-  pmd2pag: 0.25
+  sc2pag: 0.20
+  pmd2pag: 0.15
   # requires experimental backing
 
 target_synapse_silencing_probability: 
 # probability that a PAG neuron receives no inputs from a source population at all.
-  vmh2pag: 0.1
-  acc2pag: 0.1
-  ic2pag: 0.1
-  sc2pag: 0.1
-  pmd2pag: 0.1
+  vmh2pag: 0.10
+  acc2pag: 0.10
+  ic2pag: 0.10
+  sc2pag: 0.10
+  pmd2pag: 0.10
 
 source_synapse_silencing_probability:
 # probability that a source neuron does not project to any PAG neuron at all.
-  vmh2pag: 0.1
-  acc2pag: 0.1
-  ic2pag: 0.1
-  sc2pag: 0.1
-  pmd2pag: 0.1
+  vmh2pag: 0.10
+  acc2pag: 0.10
+  ic2pag: 0.10
+  sc2pag: 0.10
+  pmd2pag: 0.10
 
 
 connectivity_kernel:  # (ones, diagonal, inverted_diagonal) or none
@@ -143,11 +143,11 @@ synapse_gmax_noise_std:  # std of noise for synapses
   # vgat2vgat:    0 # .001 # 
   # vglut2vglut:  0 # .001
   # vglut2vgat:   0 # .001
-  vmh2pag:   1
-  acc2pag:   2
-  ic2pag:    1
-  sc2pag:    3
-  pmd2pag:   2
+  vmh2pag:   1.0
+  acc2pag:   0.5
+  ic2pag:    0.5
+  sc2pag:    0.5
+  pmd2pag:   0.5
 
 
 synapse_gmax_scaling: #multiplies both gmax early and late 
@@ -171,11 +171,11 @@ synapse_gmax_early:  # synaptic weights, in nS
   # vgat2vgat:    .001 # change to change weights
   # vglut2vglut:  .11 #change to change weights 
   # vglut2vgat:   .001 #change to change weights
-  vmh2pag:   9
-  acc2pag:   7
-  ic2pag:    8
-  sc2pag:    4
-  pmd2pag:   12
+  vmh2pag:   4.5
+  acc2pag:   6
+  ic2pag:    7.5
+  sc2pag:    9
+  pmd2pag:   10.5
 
 tau1_early:  # rise time synaptic conductance | in milliseconds
   # rsp2vglut:    2.413 
@@ -185,7 +185,7 @@ tau1_early:  # rise time synaptic conductance | in milliseconds
   # vglut2vglut:  1  
   # vglut2vgat:   1  
   vmh2pag:   1
-  acc2pag:   2
+  acc2pag:   1
   ic2pag:    1
   sc2pag:    1
   pmd2pag:   1

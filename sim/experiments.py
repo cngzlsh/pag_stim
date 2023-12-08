@@ -313,13 +313,36 @@ class ExternalPulseExperiment(Experiment):
         # start/stop stimulus spont
         if t >= t_start and t < t_end and self.params["use_pulse_spont"]:
             # self.stim_target_idx = [[list(np.arange(pop.neurons._N))] for pop in self.model.neuron_populations[:-1]]
-            if self.STIM_STATUS == "off":
-                #logger.debug(f" === Stimulus ON at time: {time}")
-                self.STIM_STATUS = "on"
             for i, population in enumerate(self.model.neuron_populations):
                 if population is not None and not isinstance(population, PAG):
                     population.neurons.I_stim = stimulus_strength * self.evoked_poisson_spiketrain[i][:, self.stim_bin_i]
-    
+        
+        # start/stop train
+        if t >= t_start and t <= t_end and self.params['use_train']:
+            train_t = self.params["step_every"] * 1000 * b2.ms
+            train_duration = self.params["step_duration"] * 1000 * b2.ms
+            
+            if t - self.train_end >= train_t and self.STIM_STATUS == "off":
+                logger.debug(
+                    f" -- Delivering train stimulus at time: {time:.4f} with duration {train_duration}"
+                )
+                self.STIM_STATUS = 'on'
+                self.train_start = time
+                for i, population in enumerate(self.model.neuron_populations):
+                    if population is not None and not isinstance(population, PAG):
+                        population.neurons.I_stim = train_strength
+                        
+            elif t - self.train_start >= train_duration and self.STIM_STATUS == 'on':
+                logger.debug(
+                    f" -- Stopping distractor stimulus at time {time:.4f}"
+                )
+                self.train_end = time
+                self.STIM_STATUS = 'off'
+                for i, population in enumerate(self.model.neuron_populations):
+                    if population is not None and not isinstance(population, PAG):
+                        population.neurons.I_stim = 0.0 * b2.amp
+                
+                
     def _pregenerate_poisson_stimulation_times(self, population):
 
         def homogeneous_poisson(rate, tmax, bin_size):
