@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------- #
+#                                   SETTINGS                                   #
+# ---------------------------------------------------------------------------- #
+experiment_name: pag_external_pulse  # used to choose the python class implementing the experiment
+duration:  1200 # second | duration of simulation
+dt: 0.001 #0.001  # seconds | simulation step duration
+stimulus_dt: 0.2 # milliseconds | dt for stimulus computation
+
+random_seed: 0
+
+# ---------------------------- stimulus parameters ---------------------------- #
+use_pulse:   false 
+stim_start_t:  800  # seconds
+stim_end_t: 1200 # seconds
+stim_strength: 50 #10 # 50 # 50  # nano ampers
+stimulus_center_deg:  0 #  342 
+stimulus_width_deg: 0
+
+
+
+use_train: true
+step_every: 5  # seconds | frequency of train stimuli
+step_duration: 1  # seconds
+train_strength: 50 #50 #10 #50 # 0.3 #10 #0.3  # nano ampers
+
+
+use_pulse_spont:    true
+lambda_p: 5 # 200 # 50 # 50  # nano ampers
