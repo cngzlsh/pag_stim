@@ -72,7 +72,6 @@ class BernoulliGLM():
     def fit(self, X, y):
         raise NotImplementedError()
 
-
 class BernoulliGLMwReg(BernoulliGLM):
     def __init__(self, n_neurons_per_group, reg_params, link_fn='logistic', init_strategy='gaussian', seed=0, reg='min_weights_within_group'):
         super().__init__(n_neurons_per_group=n_neurons_per_group, link_fn=link_fn, init_strategy=init_strategy, seed=seed)
@@ -173,7 +172,6 @@ class BernoulliGLMwReg(BernoulliGLM):
         group_means, group_stds = self.calc_group_statistics()
         logger.debug(f'Mean weights by neuron groups: {list(group_means)}; std: {list(group_stds)}.')
 
-
 # the following implements glm.fit() function with gradient descent via deep learning library torch.
 import torch
 import torch.nn as nn
@@ -181,6 +179,213 @@ import torch.distributions as dist
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 class BernoulliGLMPyTorch(nn.Module):
+    def __init__(self, group_names, n_neurons_per_group=None, synapse_origin_group=None, link_fn='logistic', n_sessions=1, reg_params=0):
+        super().__init__()
+        
+        '''
+        must specify: EITHER n_neurons_per_group (assuming same input neurons in all session/PAG cell)
+                      OR synapse_origin_group (allowing different input neurons in each session/PAG cell)
+        
+        :param n_neurons_per_group:     array of n_groups, each element is the number of neurons in the group indexed by that element.
+        :param synapse_origin_group:    array of n_synapses, each element is the idex of input brain region.
+        '''
+        self.group_names = group_names
+        self.n_sessions = n_sessions                            # total number of sessions/PAG cells to repeat
+        
+        if n_neurons_per_group is not None:
+            self.mode = 'neurons'
+            # assumes each neuron is connected to all PAG cells, broadcast each neuron by n_sessions
+            self.n_neurons_per_group = n_neurons_per_group      # total number of actual neurons per brain region
+            self.n_neurons = np.sum(self.n_neurons_per_group)   # total number of actual neurons
+            self.n_groups = len(self.n_neurons_per_group)       # total number of brain regions
+            self.n_synapses = self.n_sessions * self.n_neurons
+            
+            neuron_group_cumsum = np.concatenate(([0], np.cumsum(self.n_neurons_per_group))) # cumulative sum of neurons of n_neurons_per_group
+            # the group index of each synapse, len(n_sessions * n_neurons), originally self.neuron_group_idx
+            self.synapse_origin_group = np.concatenate([np.concatenate([[i for _ in range(self.n_neurons_per_group[i])] for i in range(len(self.n_neurons_per_group))]) for _ in range(n_sessions)]) 
+            # the synapse indices of each group, list of n_group sublists, each sublist contains n_session * n_group_neuron indices, originally group_neuron_idx
+            self.group_synapse_idx = [np.concatenate([np.arange(neuron_group_cumsum[m], neuron_group_cumsum[m+1]) + self.n_neurons * i for i in range(n_sessions)]) for m in range(self.n_groups)]# the neuron index of each group
+            
+            self.neuron_group_idx = self.synapse_origin_group # deprecated use
+            self.group_neuron_idx = self.group_synapse_idx # deprecated use
+            
+        else: 
+            assert synapse_origin_group is not None
+            self.mode = 'synapses'
+            self.synapse_origin_group = synapse_origin_group   # group idx of each synapse source
+            
+            self.n_groups = len(np.unique(synapse_origin_group))
+            self.n_synapses = len(synapse_origin_group)
+            # the synapse indices of each group, list of n_group sublists, each sublist contains n_session * n_group_neuron indices
+            self.group_synapse_idx = [list(np.where(synapse_origin_group == m)[0]) for m in range(self.n_groups)]
+            self_n_synpases_per_group = [len(idxs) for idxs in self.group_synapse_idx]
+        
+        if not isinstance(reg_params, torch.FloatTensor):
+            self.reg_params = reg_params * torch.ones(self.n_groups)
+        else:
+            self.reg_params = torch.FloatTensor(reg_params)
+        
+        self.link_fn = link_fn
+        self.linear = nn.Linear(in_features=self.n_synapses, out_features=1)
+        if self.link_fn == 'logistic':
+            self.activation = nn.Sigmoid()
+        # assert np.sum([len(g) for g in self.group_neuron_idx]) == np.prod(self.linear.weight.data.shape)
+    
+    def forward(self, X):
+        '''
+        Makes a forward prediction
+        '''
+        if isinstance(X, np.ndarray):
+            X = torch.FloatTensor(X).to(device)
+        return self.activation(self.linear(X))
+    
+    def calc_log_likelihood(self, X, y):
+        if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
+            X = torch.FloatTensor(X).to(device)
+            y = torch.FloatTensor(y).to(device)
+        with torch.no_grad():
+            return torch.sum(dist.Bernoulli(probs=self.forward(X)).log_prob(y))
+    
+    def calc_group_statistics(self):
+        '''
+        Computes the mean and variance of weights within each neuron group.
+        '''
+        group_means = torch.zeros(self.n_groups)
+        group_stds = torch.zeros(self.n_groups)
+        
+        for m in range(self.n_groups):
+            group_means[m] = torch.mean(self.linear.weight.data[0, self.group_neuron_idx[m]])
+            group_stds[m] = torch.std(self.linear.weight.data[0, self.group_neuron_idx[m]])
+        
+        return group_means, group_stds
+
+    def calc_log_likelihood_w_reg(self, X, y):
+        if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
+            X = torch.FloatTensor(X).to(device)
+            y = torch.FloatTensor(y).to(device)
+            
+        reg_term = 0
+        # for i, w in enumerate(self.linear.weight[0,:]):
+        #     m = self.neuron_group_idx[i]
+        #     reg_term += self.reg_params[m] * torch.abs(w) * torch.sum(
+        #         torch.pow(
+        #             self.linear.weight[0, self.neuron_group_cumsum[m]:self.neuron_group_cumsum[m+1]] - w, 2)
+        #         )
+        # (self.weights @ X + self.bias) @ y.T  - np.sum(np.log(1 + np.exp(self.weights @ X + self.bias)))
+        for m in range(self.n_groups):
+            w = self.linear.weight[:, self.group_synapse_idx[m]]
+            reg_term += self.reg_params[m] * torch.sum(
+                torch.pow(w, 2) \
+                @ torch.pow((w - w.T), 2)
+                )
+        
+        return - (self.linear(X).T @ y - torch.sum(torch.log(1 + torch.exp(self.linear(X))))) + reg_term
+    
+    def fit(self, X, y, n_iter, lr=1e-3, verbose=1, decay=1):
+        '''
+        verbose:    -1: prints nothing; 0: prints initial and final losses; 1: prints 20 steps; 2: prints all steps.
+        '''
+        if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
+            X = torch.FloatTensor(X).to(device)
+            y = torch.FloatTensor(y).to(device)
+        
+        if verbose > -1:
+            with torch.no_grad():
+                logger.debug(f'Training GLM with PyTorch. Initial log like: {self.calc_log_likelihood(X, y)}, inital loss: {self.calc_log_likelihood_w_reg(X, y).detach().cpu().numpy()}')
+            
+        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay)
+            
+        self.best_loss = torch.tensor(np.inf)
+        best_log_like = self.calc_log_likelihood(X, y)
+        best_epoch_i = 1
+        
+        for epoch_i in range(n_iter):
+            
+            loss = self.calc_log_likelihood_w_reg(X, y)
+            if loss.detach().cpu().float() < self.best_loss:
+                best_log_like = self.calc_log_likelihood(X, y)
+                best_epoch_i = epoch_i + 1
+                self.best_weight = copy.copy(self.linear.weight.data)
+                self.best_bias = copy.copy(self.linear.bias.data)
+                self.best_loss = loss.detach().cpu().float()
+            
+            if verbose == 2:
+                logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {float(loss.detach().cpu().numpy())}')
+            elif verbose == 1:
+                if (epoch_i+1) % int(n_iter / 20) == 0:
+                    logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {float(loss.detach().cpu().numpy())}')
+            
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
+        
+        if verbose > -1:
+            with torch.no_grad():
+                logger.debug(f'Training complete with best log like: {best_log_like}, best loss: {self.best_loss} at epoch {best_epoch_i}.')
+    
+    def load_best_params(self):
+        try:
+            self.linear.weight.data = self.best_weight.to(device)
+            self.linear.bias.data = self.best_bias.to(device)
+        except:
+            raise AttributeError('Fit model to data first')
+    
+    def _load_state_dict(self, pth_file):
+        # loads state dict, then saves as best weight
+        self.load_state_dict(pth_file)
+        
+        self.best_weight = copy.copy(self.linear.weight.data)
+        self.best_bias = copy.copy(self.linear.bias.data)
+
+
+class BernoulliGLMBetaRegPyTorch(BernoulliGLMPyTorch):
+    '''
+    Added bias regularisation - Yulin & Dario 11 Dec 2023
+    '''
+    def __init__(self,
+                 group_names,
+                 n_neurons_per_group=None,
+                 synapse_origin_group=None,
+                 link_fn='logistic',
+                 n_sessions=1,
+                 weights_reg_params=0,
+                 beta_reg_params=np.array([1, 1, 3, 2])):
+        
+        super().__init__(group_names,
+                         n_neurons_per_group=n_neurons_per_group,
+                         synapse_origin_group=synapse_origin_group,
+                         link_fn=link_fn,
+                         n_sessions=n_sessions,
+                         reg_params=weights_reg_params)
+        
+        assert len(beta_reg_params) == 4
+        self.beta_reg_params = beta_reg_params # np.array([m, n, j, k])
+        # beta regularisation: m * beta**j + n * beta ** (-k)
+        assert beta_reg_params[2] % 2 == 1
+        assert beta_reg_params[3] % 2 == 0
+
+    def calc_log_likelihood_w_reg(self, X, y):
+        if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
+            X = torch.FloatTensor(X).to(device)
+            y = torch.FloatTensor(y).to(device)
+            
+        weights_reg_term = 0
+        for m in range(self.n_groups):
+            w = self.linear.weight[:, self.group_synapse_idx[m]]
+            weights_reg_term += self.reg_params[m] * torch.sum(
+                torch.pow(w, 2) \
+                @ torch.pow((w - w.T), 2)
+                )
+        
+        b = self.linear.bias.data
+        bias_reg_term = self.beta_reg_params[0] * b ** self.beta_reg_params[2] + self.beta_reg_params[1] * b ** -self.beta_reg_params[3]
+        
+        return - (self.linear(X).T @ y - torch.sum(torch.log(1 + torch.exp(self.linear(X))))) + weights_reg_term + bias_reg_term
+
+
+class BernoulliGLMwHistoryPyTorch(nn.Module):
     def __init__(self, n_neurons_per_group, link_fn='logistic', n_sessions=1, reg_params=0, history=0):
         super().__init__()
         self.n_neurons_per_group = n_neurons_per_group # total number of actual neurons per brain region
@@ -323,140 +528,9 @@ class BernoulliGLMPyTorch(nn.Module):
         
         self.best_weight = copy.copy(self.linear.weight.data)
         self.best_bias = copy.copy(self.linear.bias.data)
-        
-        
-# class BernoulliGLMPyTorch(nn.Module):
-#     def __init__(self, n_neurons_per_group, link_fn='logistic', n_sessions=1, reg_params=0):
-#         super().__init__()
-#         self.n_neurons_per_group = n_neurons_per_group # total number of actual neurons per brain region
-#         self.n_neurons = np.sum(self.n_neurons_per_group) # total number of actual neurons
-#         self.n_groups = len(self.n_neurons_per_group) # total number of brain regions
-#         self.n_sessions = n_sessions # total number of sessions to repeat
-        
-#         if not isinstance(reg_params, torch.FloatTensor):
-#             self.reg_params = reg_params * torch.ones(self.n_groups)
-#         else:
-#             self.reg_params = torch.FloatTensor(reg_params)
-        
-#         # cumulative sum of neurons of n_neurons_per_group
-#         neuron_group_cumsum = np.concatenate(([0], np.cumsum(n_neurons_per_group))) 
-        
-#         # the group index of each neuron, len(n_sessions * n_neurons)
-#         self.neuron_group_idx = np.concatenate([np.concatenate([[i for _ in range(self.n_neurons_per_group[i])] for i in range(len(self.n_neurons_per_group))]) for _ in range(n_sessions)]) 
-#         # the neuron indices of each group, list of n_group lists, each sublist contains n_session * n_group_neuron indices
-#         self.group_neuron_idx = [np.concatenate([np.arange(neuron_group_cumsum[m], neuron_group_cumsum[m+1]) + self.n_neurons * i for i in range(n_sessions)]) for m in range(self.n_groups)]# the neuron index of each group
-        
-#         self.link_fn = link_fn
-#         self.linear = nn.Linear(in_features=np.sum(n_neurons_per_group) * n_sessions, out_features=1)
-#         if self.link_fn == 'logistic':
-#             self.activation = nn.Sigmoid()
-#         assert np.sum([len(g) for g in self.group_neuron_idx]) == np.prod(self.linear.weight.data.shape)
-    
-#     def forward(self, X):
-#         '''
-#         Makes a forward prediction
-#         '''
-#         if isinstance(X, np.ndarray):
-#             X = torch.FloatTensor(X).to(device)
-#         return self.activation(self.linear(X))
-    
-#     def calc_log_likelihood(self, X, y):
-#         if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
-#             X = torch.FloatTensor(X).to(device)
-#             y = torch.FloatTensor(y).to(device)
-#         with torch.no_grad():
-#             return torch.sum(dist.Bernoulli(probs=self.forward(X)).log_prob(y))
-    
-#     def calc_group_statistics(self):
-#         '''
-#         Computes the mean and variance of weights within each neuron group.
-#         '''
-#         group_means = torch.zeros(self.n_groups)
-#         group_stds = torch.zeros(self.n_groups)
-        
-#         for m in range(self.n_groups):
-#             group_means[m] = torch.mean(self.linear.weight.data[0, self.group_neuron_idx[m]])
-#             group_stds[m] = torch.std(self.linear.weight.data[0, self.group_neuron_idx[m]])
-        
-#         return group_means, group_stds
 
-#     def calc_log_likelihood_w_reg(self, X, y):
-#         if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
-#             X = torch.FloatTensor(X).to(device)
-#             y = torch.FloatTensor(y).to(device)
-            
-#         reg_term = 0
-#         # for i, w in enumerate(self.linear.weight[0,:]):
-#         #     m = self.neuron_group_idx[i]
-#         #     reg_term += self.reg_params[m] * torch.abs(w) * torch.sum(
-#         #         torch.pow(
-#         #             self.linear.weight[0, self.neuron_group_cumsum[m]:self.neuron_group_cumsum[m+1]] - w, 2)
-#         #         )
-#         # (self.weights @ X + self.bias) @ y.T  - np.sum(np.log(1 + np.exp(self.weights @ X + self.bias)))
-#         for m in range(self.n_groups):
-#             w = self.linear.weight[:, self.group_neuron_idx[m]]
-#             reg_term += self.reg_params[m] * torch.sum(
-#                 torch.pow(w, 2) \
-#                 @ torch.pow((w - w.T), 2)
-#                 )
-        
-#         return - (self.linear(X).T @ y - torch.sum(torch.log(1 + torch.exp(self.linear(X))))) + reg_term
-    
-#     def fit(self, X, y, n_iter, lr=1e-3, verbose=1, decay=None):
-#         '''
-#         verbose:    -1: prints nothing; 0: prints initial and final losses; 1: prints 20 steps; 2: prints all steps.
-#         '''
-#         if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
-#             X = torch.FloatTensor(X).to(device)
-#             y = torch.FloatTensor(y).to(device)
-        
-#         if verbose > -1:
-#             with torch.no_grad():
-#                 logger.debug(f'Training GLM with PyTorch. Initial log like: {self.calc_log_likelihood(X, y)}, inital loss: {self.calc_log_likelihood_w_reg(X, y).cpu().float()}')
-            
-#         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-#         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay)
-#         self.best_loss = torch.tensor(np.inf)
-        
-#         for epoch_i in range(n_iter):
-            
-#             loss = self.calc_log_likelihood_w_reg(X, y)
-#             if loss.detach().cpu().float() < self.best_loss:
-#                 best_log_like = self.calc_log_likelihood(X, y)
-#                 best_epoch_i = epoch_i + 1
-#                 self.best_weight = copy.copy(self.linear.weight.data)
-#                 self.best_bias = copy.copy(self.linear.bias.data)
-#                 self.best_loss = loss.detach().cpu().float()
-            
-#             if verbose == 2:
-#                 logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {float(loss.detach().cpu().numpy())}')
-#             elif verbose == 1:
-#                 if (epoch_i+1) % int(n_iter / 20) == 0:
-#                     logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {float(loss.detach().cpu().numpy())}')
-            
-#             loss.backward()
-#             optimizer.step()
-#             if decay is not None:
-#                 scheduler.step()
-#             optimizer.zero_grad()
-        
-#         if verbose > -1:
-#             with torch.no_grad():
-#                 logger.debug(f'Training complete with best log like: {best_log_like}, best loss: {self.best_loss} at epoch {best_epoch_i}.')
-    
-#     def load_best_params(self):
-#         try:
-#             self.linear.weight.data = self.best_weight.to(device)
-#             self.linear.bias.data = self.best_bias.to(device)
-#         except:
-#             raise AttributeError('Fit model to data first')
-    
-#     def _load_state_dict(self, pth_file):
-#         # loads state dict, then saves as best weight
-#         self.load_state_dict(pth_file)
-        
-#         self.best_weight = copy.copy(self.linear.weight.data)
-#         self.best_bias = copy.copy(self.linear.bias.data)
+
+
         
 if __name__ == '__main__':
 
