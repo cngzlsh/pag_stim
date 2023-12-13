@@ -394,7 +394,7 @@ class BernoulliGLMwHistoryPyTorch(BernoulliGLMPyTorch):
         
         assert isinstance(history, int) and history >= 1
         self.history = history
-        self.history_filters = nn.Linear(self.n_synapses*self.history, 1, bias=False)
+        self.history_filters = nn.Linear(self.history, 1, bias=False)
     
     def forward(self, X):
         '''
@@ -402,12 +402,12 @@ class BernoulliGLMwHistoryPyTorch(BernoulliGLMPyTorch):
         '''
         if isinstance(X, np.ndarray):
             X = torch.FloatTensor(X).to(device) # (bins, input_shape)
-        assert False
-        # fix this daniel 
-            
-        X_shifted = torch.vstack([X[h:,:] for h in range(1, self.history)])
         
-        return self.activation(self.linear(X)) + self.history_filters(X_shifted)
+        with torch.no_grad():
+            y_hat_hist = torch.hstack((torch.zeros(self.history, 1), self.activation(self.linear(X))))
+        
+        return self.activation(self.linear(X) + self.history_filters(y_hat_hist[:-self.history,: ]))
+        
 
         
 if __name__ == '__main__':
