@@ -3,6 +3,8 @@ import numpy as np
 from loguru import logger
 import copy
 
+# the following are numpy implementation of GLMs.
+
 class BernoulliGLM():
     def __init__(self, n_neurons_per_group, link_fn='logistic', init_strategy='gaussian', seed=0):
         self.init_strategy = init_strategy
@@ -245,19 +247,6 @@ class BernoulliGLMPyTorch(nn.Module):
             y = torch.FloatTensor(y).to(device)
         with torch.no_grad():
             return torch.sum(dist.Bernoulli(probs=self.forward(X)).log_prob(y))
-    
-    def calc_group_statistics(self):
-        '''
-        Computes the mean and variance of weights within each neuron group.
-        '''
-        group_means = torch.zeros(self.n_groups)
-        group_stds = torch.zeros(self.n_groups)
-        
-        for m in range(self.n_groups):
-            group_means[m] = torch.mean(self.linear.weight.data[0, self.group_neuron_idx[m]])
-            group_stds[m] = torch.std(self.linear.weight.data[0, self.group_neuron_idx[m]])
-        
-        return group_means, group_stds
 
     def calc_log_likelihood_w_reg(self, X, y):
         if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
@@ -279,7 +268,8 @@ class BernoulliGLMPyTorch(nn.Module):
                 @ torch.pow((w - w.T), 2)
                 )
         
-        return - (self.linear(X).T @ y - torch.sum(torch.log(1 + torch.exp(self.linear(X))))) + reg_term
+        # return - (self.linear(X).T @ y - torch.sum(torch.log(1 + torch.exp(self.linear(X))))) + reg_term
+        return - torch.sum(dist.Bernoulli(probs=self.forward(X)).log_prob(y)) + reg_term
     
     def fit(self, X, y, n_iter, lr=1e-3, verbose=1, decay=1):
         '''
@@ -385,151 +375,39 @@ class BernoulliGLMBetaRegPyTorch(BernoulliGLMPyTorch):
         return - (self.linear(X).T @ y - torch.sum(torch.log(1 + torch.exp(self.linear(X))))) + weights_reg_term + bias_reg_term
 
 
-class BernoulliGLMwHistoryPyTorch(nn.Module):
-    def __init__(self, n_neurons_per_group, link_fn='logistic', n_sessions=1, reg_params=0, history=0):
-        super().__init__()
-        self.n_neurons_per_group = n_neurons_per_group # total number of actual neurons per brain region
-        self.n_neurons = np.sum(self.n_neurons_per_group) # total number of actual neurons
-        self.n_groups = len(self.n_neurons_per_group) # total number of brain regions
-        self.n_sessions = n_sessions # total number of sessions to repeat
-        self.history = history # number of steps in the history filter. c.f. Dario https://elifesciences.org/articles/10696
+class BernoulliGLMwHistoryPyTorch(BernoulliGLMPyTorch):
+    def __init__(self,
+                 group_names,
+                 n_neurons_per_group=None,
+                 synapse_origin_group=None,
+                 link_fn='logistic',
+                 n_sessions=1,
+                 weights_reg_params=0,
+                 history=1):
         
-        if not isinstance(reg_params, torch.FloatTensor):
-            self.reg_params = reg_params * torch.ones(self.n_groups)
-        else:
-            self.reg_params = torch.FloatTensor(reg_params)
+        super().__init__(group_names,
+                         n_neurons_per_group=n_neurons_per_group,
+                         synapse_origin_group=synapse_origin_group,
+                         link_fn=link_fn,
+                         n_sessions=n_sessions,
+                         reg_params=weights_reg_params)
         
-        # cumulative sum of neurons of n_neurons_per_group
-        neuron_group_cumsum = np.concatenate(([0], np.cumsum(n_neurons_per_group))) 
-        
-        # the group index of each neuron, len(n_sessions * n_neurons)
-        self.neuron_group_idx = np.concatenate([np.concatenate([[i for _ in range(self.n_neurons_per_group[i])] for i in range(len(self.n_neurons_per_group))]) for _ in range(n_sessions)]) 
-        # the neuron indices of each group, list of n_group lists, each sublist contains n_session * n_group_neuron indices
-        self.group_neuron_idx = [np.concatenate([np.arange(neuron_group_cumsum[m], neuron_group_cumsum[m+1]) + self.n_neurons * i for i in range(n_sessions)]) for m in range(self.n_groups)]# the neuron index of each group
-        
-        self.link_fn = link_fn
-        self.linear = nn.Linear(in_features=np.sum(n_neurons_per_group) * n_sessions, out_features=1)
-        
-        if self.history > 0:
-            self.history_filter = nn.Linear(in_features=np.sum(n_neurons_per_group) * n_sessions * self.history, out_features=1, bias=False)
-        
-        if self.link_fn == 'logistic':
-            self.activation = nn.Sigmoid()
-        assert np.sum([len(g) for g in self.group_neuron_idx]) == np.prod(self.linear.weight.data.shape)
+        assert isinstance(history, int) and history >= 1
+        self.history = history
+        self.history_filters = nn.Linear(self.n_synapses*self.history, 1, bias=False)
     
     def forward(self, X):
         '''
         Makes a forward prediction
         '''
         if isinstance(X, np.ndarray):
-            X = torch.FloatTensor(X).to(device) # shape (n_bins, n_input_neurons)
-        
-        if self.history == 0:
-            return self.activation(self.linear(X))
-        else:
-            # X_padded = 
-            # X_hist = torch.hstack((X[]))
-            raise NotImplementedError('Do this daniel dont be lazy')
-    
-    def calc_log_likelihood(self, X, y):
-        if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
-            X = torch.FloatTensor(X).to(device)
-            y = torch.FloatTensor(y).to(device)
-        with torch.no_grad():
-            return torch.sum(dist.Bernoulli(probs=self.forward(X)).log_prob(y))
-    
-    def calc_group_statistics(self):
-        '''
-        Computes the mean and variance of weights within each neuron group.
-        '''
-        group_means = torch.zeros(self.n_groups)
-        group_stds = torch.zeros(self.n_groups)
-        
-        for m in range(self.n_groups):
-            group_means[m] = torch.mean(self.linear.weight.data[0, self.group_neuron_idx[m]])
-            group_stds[m] = torch.std(self.linear.weight.data[0, self.group_neuron_idx[m]])
-        
-        return group_means, group_stds
-
-    def calc_log_likelihood_w_reg(self, X, y):
-        if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
-            X = torch.FloatTensor(X).to(device)
-            y = torch.FloatTensor(y).to(device)
+            X = torch.FloatTensor(X).to(device) # (bins, input_shape)
+        assert False
+        # fix this daniel 
             
-        reg_term = 0
-        # for i, w in enumerate(self.linear.weight[0,:]):
-        #     m = self.neuron_group_idx[i]
-        #     reg_term += self.reg_params[m] * torch.abs(w) * torch.sum(
-        #         torch.pow(
-        #             self.linear.weight[0, self.neuron_group_cumsum[m]:self.neuron_group_cumsum[m+1]] - w, 2)
-        #         )
-        # (self.weights @ X + self.bias) @ y.T  - np.sum(np.log(1 + np.exp(self.weights @ X + self.bias)))
-        for m in range(self.n_groups):
-            w = self.linear.weight[:, self.group_neuron_idx[m]]
-            reg_term += self.reg_params[m] * torch.sum(
-                torch.pow(w, 2) \
-                @ torch.pow((w - w.T), 2)
-                )
+        X_shifted = torch.vstack([X[h:,:] for h in range(1, self.history)])
         
-        return - (self.linear(X).T @ y - torch.sum(torch.log(1 + torch.exp(self.linear(X))))) + reg_term
-    
-    def fit(self, X, y, n_iter, lr=1e-3, verbose=1, decay=None):
-        '''
-        verbose:    -1: prints nothing; 0: prints initial and final losses; 1: prints 20 steps; 2: prints all steps.
-        '''
-        if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
-            X = torch.FloatTensor(X).to(device)
-            y = torch.FloatTensor(y).to(device)
-        
-        if verbose > -1:
-            with torch.no_grad():
-                logger.debug(f'Training GLM with PyTorch. Initial log like: {self.calc_log_likelihood(X, y)}, inital loss: {self.calc_log_likelihood_w_reg(X, y).cpu().float()}')
-            
-        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay)
-        self.best_loss = torch.tensor(np.inf)
-        
-        for epoch_i in range(n_iter):
-            
-            loss = self.calc_log_likelihood_w_reg(X, y)
-            if loss.detach().cpu().float() < self.best_loss:
-                best_log_like = self.calc_log_likelihood(X, y)
-                best_epoch_i = epoch_i + 1
-                self.best_weight = copy.copy(self.linear.weight.data)
-                self.best_bias = copy.copy(self.linear.bias.data)
-                self.best_loss = loss.detach().cpu().float()
-            
-            if verbose == 2:
-                logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {float(loss.detach().cpu().numpy())}')
-            elif verbose == 1:
-                if (epoch_i+1) % int(n_iter / 20) == 0:
-                    logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {float(loss.detach().cpu().numpy())}')
-            
-            loss.backward()
-            optimizer.step()
-            if decay is not None:
-                scheduler.step()
-            optimizer.zero_grad()
-        
-        if verbose > -1:
-            with torch.no_grad():
-                logger.debug(f'Training complete with best log like: {best_log_like}, best loss: {self.best_loss} at epoch {best_epoch_i}.')
-    
-    def load_best_params(self):
-        try:
-            self.linear.weight.data = self.best_weight.to(device)
-            self.linear.bias.data = self.best_bias.to(device)
-        except:
-            raise AttributeError('Fit model to data first')
-    
-    def _load_state_dict(self, pth_file):
-        # loads state dict, then saves as best weight
-        self.load_state_dict(pth_file)
-        
-        self.best_weight = copy.copy(self.linear.weight.data)
-        self.best_bias = copy.copy(self.linear.bias.data)
-
-
+        return self.activation(self.linear(X)) + self.history_filters(X_shifted)
 
         
 if __name__ == '__main__':
