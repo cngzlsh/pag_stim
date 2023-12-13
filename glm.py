@@ -404,9 +404,13 @@ class BernoulliGLMwHistoryPyTorch(BernoulliGLMPyTorch):
             X = torch.FloatTensor(X).to(device) # (bins, input_shape)
         
         with torch.no_grad():
-            y_hat_hist = torch.hstack((torch.zeros(self.history, 1), self.activation(self.linear(X))))
-        
-        return self.activation(self.linear(X) + self.history_filters(y_hat_hist[:-self.history,: ]))
+            y_hat_hist = torch.vstack((torch.zeros(self.history, 1).to(device), self.activation(self.linear(X))))
+
+        return self.activation(
+            self.linear(X) + self.history_filters(
+                torch.hstack([y_hat_hist[h:h+X.shape[0]] for h in range(self.history)])
+            )
+        )
         
 
         
