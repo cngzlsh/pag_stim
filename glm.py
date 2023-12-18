@@ -448,7 +448,7 @@ class BernoulliGLMwHistoryPyTorch(BernoulliGLMPyTorch):
 
         return self.activation(
             self.linear(X) + self.history_filters(
-                torch.hstack([y_hat_hist[h:h+X.shape[0]] for h in range(self.history)])
+                torch.hstack([dist.Bernoulli(probs=y_hat_hist[h:h+X.shape[0]]).sample() for h in range(self.history)])
             )
         )
 
@@ -473,26 +473,33 @@ class BernoulliGLMwHistoryMultiSessionPyTorch(BernoulliGLMPyTorch):
         
         assert isinstance(history, int) and history >= 1
         self.history = history
-        self.history_filters = nn.ModuleList([nn.Linear(self.history, 1, bias=False) for _ in range(self.n_sessions)])
+        # self.history_filters = nn.ModuleList([nn.Linear(self.history, 1, bias=False) for _ in range(self.n_sessions)])
+        self.history_filters = nn.Linear(int(self.n_sessions * self.history), 1, bias=False)
+        # assuming history is stacked of shape (n_bins, n_PAG_cells * n_steps)
     
     def forward(self, X):
         '''
         Makes a forward prediction
         '''
         if isinstance(X, np.ndarray):
-            X = torch.FloatTensor(X).to(device) # (bins * n_sessions, input_shape)
+            X = torch.FloatTensor(X).to(device) # (n_bins * n_sessions, input_shape)
         
         with torch.no_grad():
-            y_hat_naive = self.activation(self.linear(X)).reshape(self.n_sessions, -1, 1) # (bins * n_sessions, input_shape)
+            y_hat_naive = self.activation(self.linear(X)) # (n_bins * n_sessions, 1)
+            y_hat_naive = y_hat_naive.reshape(-1, self.n_sessions) # (n_bins, n_sessions)
+            n_bins = y_hat_naive.shape[0]
         
-        y_hat_hist = torch.stack([torch.vstack([torch.zeros((self.history, 1)).to(device), y_hat_naive[c]]) for c in range(self.n_sessions)])
-        hist_terms = torch.vstack(
-            [self.history_filters[c](
-                torch.hstack(
-                    [y_hat_hist[c, h:h+int(X.shape[0]/self.n_sessions),:] for h in range(self.history)]
-                )
-        ) for c in range(self.n_sessions)]
-        )
+        # y_hat_hist = torch.stack([torch.vstack([torch.zeros((self.history, 1)).to(device), y_hat_naive[c]]) for c in range(self.n_sessions)])
+        y_hat_hist = torch.hstack(
+            [torch.zeros(self.history, self.n_sessions).to(device),
+             y_hat_naive]) # (n_bins + history, n_sessions) stacked like
+        
+        y_hat_hist = torch.vstack([
+            y_hat_hist[h:h+n_bins, :] for h in range(self.history) 
+        ])
+        assert y_hat_hist.shape == torch.Size([n_bins, self.history * self.n_sessions]) (n_bins, n_PAG_cells * n_steps)
+        
+        hist_terms = self.history_filters(y_hat_hist) 
         
         return self.activation(self.linear(X) + hist_terms)
         
