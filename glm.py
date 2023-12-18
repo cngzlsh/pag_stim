@@ -480,7 +480,7 @@ class BernoulliGLMwHistoryMultiSessionPyTorch(BernoulliGLMPyTorch):
         assert isinstance(history, int) and history >= 1
         self.history = history
         # self.history_filters = nn.ModuleList([nn.Linear(self.history, 1, bias=False) for _ in range(self.n_sessions)])
-        self.history_filters = nn.Linear(int(self.n_sessions * self.history), self.n_sessions, bias=False)
+        self.history_filters = nn.ModuleList(nn.Linear(self.history, 1, bias=False) for _ in range(self.n_sessions))
         # assuming history is stacked of shape (n_bins, n_PAG_cells * n_steps)
     
     def forward(self, X):
@@ -506,14 +506,15 @@ class BernoulliGLMwHistoryMultiSessionPyTorch(BernoulliGLMPyTorch):
         ])
         assert y_hat_hist_sampled.shape == torch.Size([n_bins, self.history * self.n_sessions]) # (n_bins, n_PAG_cells * n_steps)
         # re-arrange the tensor such that it's [:, [0,2,4,1,3,5]]
-        re_arranged_indices = list(np.concatenate([np.arange(c, self.n_sessions*self.history, self.n_sessions) for c in range(self.n_sessions)]))
-        hist_terms = self.history_filters(y_hat_hist_sampled[:, re_arranged_indices]).reshape(-1, 1)
+        
+        hist_terms = torch.vstack([self.history_filters[c](y_hat_hist_sampled[:, np.arange(c, self.n_sessions*self.history, self.n_sessions)]) for c in range(self.n_sessions)])
         del y_hat_hist_sampled
         
         return self.activation(self.linear(X) + hist_terms)
     
     def get_history_filter_weights(self):
-        return self.history_filters.weight.data.reshape(self.n_sessions, self.history)[:,::-1]
+        with torch.no_grad():
+            return torch.vstack([torch.flip(self.history_filters[c].weight.data, [1]) for c in range(self.n_sessions)]) # (n_pag_cells, history)ß
         
 
 if __name__ == '__main__':
@@ -548,5 +549,6 @@ if __name__ == '__main__':
                                                   },
                                                   history=3)
     glm.fit(X_train.T, y_train.T, n_iter= 100)
+    glm.get_history_filter_weights()
         
     
