@@ -233,10 +233,16 @@ class BernoulliGLMPyTorch(nn.Module):
         # regularisers
         self.regs = regs
         self.reg_params = {}
+        # the following conditional statements are just to make previous versions compatible
         if isinstance(reg_params, int) or isinstance(reg_params, float):
             self.reg_params['weights_within_group'] = reg_params * torch.ones(self.n_groups)
-        else:
-            self.reg_params.update(reg_params)
+        elif 'weights_within_group' in reg_params.keys():
+            if isinstance(reg_params['weights_within_group'], int) or isinstance(reg_params['weights_within_group'], float):
+                self.reg_params['weights_within_group'] = reg_params['weights_within_group'] * torch.ones(self.n_groups)
+            reg_params.pop('weights_within_group')
+        self.reg_params.update(reg_params)
+            
+        
         self.accepted_regs = ['weights_within_group', 'weights_sparsity', 'beta']
         for reg in self.regs:
             if reg not in self.accepted_regs:
@@ -474,7 +480,7 @@ class BernoulliGLMwHistoryMultiSessionPyTorch(BernoulliGLMPyTorch):
         assert isinstance(history, int) and history >= 1
         self.history = history
         # self.history_filters = nn.ModuleList([nn.Linear(self.history, 1, bias=False) for _ in range(self.n_sessions)])
-        self.history_filters = nn.Linear(int(self.n_sessions * self.history), 1, bias=False)
+        self.history_filters = nn.Linear(int(self.n_sessions * self.history), self.n_sessions, bias=False)
         # assuming history is stacked of shape (n_bins, n_PAG_cells * n_steps)
     
     def forward(self, X):
@@ -490,18 +496,24 @@ class BernoulliGLMwHistoryMultiSessionPyTorch(BernoulliGLMPyTorch):
             n_bins = y_hat_naive.shape[0]
         
         # y_hat_hist = torch.stack([torch.vstack([torch.zeros((self.history, 1)).to(device), y_hat_naive[c]]) for c in range(self.n_sessions)])
-        y_hat_hist = torch.hstack(
+        y_hat_hist_sampled = torch.vstack(
             [torch.zeros(self.history, self.n_sessions).to(device),
-             y_hat_naive]) # (n_bins + history, n_sessions) stacked like
+             dist.Bernoulli(probs=y_hat_naive).sample()]) # (n_bins + history, n_sessions) stacked like
+        del y_hat_naive
         
-        y_hat_hist = torch.vstack([
-            y_hat_hist[h:h+n_bins, :] for h in range(self.history) 
+        y_hat_hist_sampled = torch.hstack([
+            y_hat_hist_sampled[h:h+n_bins, :] for h in range(self.history) 
         ])
-        assert y_hat_hist.shape == torch.Size([n_bins, self.history * self.n_sessions]) (n_bins, n_PAG_cells * n_steps)
-        
-        hist_terms = self.history_filters(y_hat_hist) 
+        assert y_hat_hist_sampled.shape == torch.Size([n_bins, self.history * self.n_sessions]) # (n_bins, n_PAG_cells * n_steps)
+        # re-arrange the tensor such that it's [:, [0,2,4,1,3,5]]
+        re_arranged_indices = list(np.concatenate([np.arange(c, self.n_sessions*self.history, self.n_sessions) for c in range(self.n_sessions)]))
+        hist_terms = self.history_filters(y_hat_hist_sampled[:, re_arranged_indices]).reshape(-1, 1)
+        del y_hat_hist_sampled
         
         return self.activation(self.linear(X) + hist_terms)
+    
+    def get_history_filter_weights(self):
+        return self.history_filters.weight.data.reshape(self.n_sessions, self.history)[:,::-1]
         
 
 if __name__ == '__main__':
@@ -509,22 +521,32 @@ if __name__ == '__main__':
     seed = 0
     np.random.seed(seed)
     # fake data
-    T = 1000
-    N = 100
+    T = 11  # total time steps
+    N = 5   # number of input neurons
+    n = 2   # number of output neurons
 
-    X = np.random.binomial(n=1, p=.7, size=(2*N, T))
-
-    true_weights = np.random.normal(loc=0, scale=1, size=(1, 2*N))
+    X = np.random.binomial(n=1, p=.7, size=(N, T))
+    true_weights = np.random.normal(loc=0, scale=1, size=(n, N))
     true_bias = np.random.normal()
-
     y = np.random.binomial(1, p=1 / (1 + np.exp(- true_weights @ X + true_bias)))
     
-    glm = BernoulliGLMPyTorch(n_neurons_per_group=np.array([N, N]), n_sessions=3).to(device)
-    glm.fit(np.repeat(X, 3, axis=0).T, y.T, n_iter=1000, lr=1e-3, verbose=1)
+    # construct multi-PAG glm input and target matrix
+    X_train = np.zeros((N * n, T * n))
+    y_train = y.reshape(1, -1)
+    for c in range(n):
+        X_train[c*N:(c+1)*N, c*T:(c+1)*T] = X
+        
+    print('fake data shapes: ',X_train.shape, X_train.shape)
     
-    with torch.no_grad():
-        glm.linear.weight.data = torch.FloatTensor(true_weights).to(device)
-        glm.linear.bias.data = torch.FloatTensor([true_bias]).to(device)
-        print(glm.calc_log_likelihood(X.T, y.T))
+    glm = BernoulliGLMwHistoryMultiSessionPyTorch(group_names=['a', 'b', 'c', 'd','e'],
+                                                  n_neurons_per_group=[1,1,1,1,1],
+                                                  n_sessions=2,
+                                                  regs=['weights_within_group', 'weights_sparsity'],
+                                                  reg_params={
+                                                      'weights_within_group':1,
+                                                      'weights_sparsity': 1,
+                                                  },
+                                                  history=3)
+    glm.fit(X_train.T, y_train.T, n_iter= 100)
         
     
