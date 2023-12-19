@@ -2,7 +2,7 @@
 #                                   SETTINGS                                   #
 # ---------------------------------------------------------------------------- #
 experiment_name: pag_external_pulse  # used to choose the python class implementing the experiment
-duration:  1200 # second | duration of simulation
+duration:  1 # second | duration of simulation
 dt: 0.001 #0.001  # seconds | simulation step duration
 stimulus_dt: 0.2 # milliseconds | dt for stimulus computation
 

@@ -498,7 +498,8 @@ class BernoulliGLMwHistoryMultiSessionPyTorch(BernoulliGLMPyTorch):
         # y_hat_hist = torch.stack([torch.vstack([torch.zeros((self.history, 1)).to(device), y_hat_naive[c]]) for c in range(self.n_sessions)])
         y_hat_hist_sampled = torch.vstack(
             [torch.zeros(self.history, self.n_sessions).to(device),
-             dist.Bernoulli(probs=y_hat_naive).sample()]) # (n_bins + history, n_sessions) stacked like
+             y_hat_naive])
+             # dist.Bernoulli(probs=y_hat_naive).sample()]) # (n_bins + history, n_sessions) stacked like
         del y_hat_naive
         
         y_hat_hist_sampled = torch.hstack([

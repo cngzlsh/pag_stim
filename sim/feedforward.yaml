@@ -1,25 +1,25 @@
 # --------------------------------- METADATA --------------------------------- #
 experiment: block
 save_path: './save'
-save_name: pagsim_w_stimuli_1200s
+save_name: pagsim_w_stimuli_1s
 save_format: npy  # npy or mat
 b2_DEBUG: false  # keep brian2 debug logs?
 
 # ---------------------------------- PARAMS ---------------------------------- #
 # number of neurons
-n_vmh: 32
-n_acc: 32
-n_ic: 32
-n_sc: 32
-n_pmd: 32
+n_vmh: 20
+n_acc: 1
+n_ic: 1
+n_sc: 1
+n_pmd: 1
 
-n_pag: 4
+n_pag: 1
 
 
 # external Poisson spiking units
 n_external: 500  # for each of the 5 populations
 external_firing_rate: 
-  vmh: 10 #1 #1  # Hz
+  vmh: 30 #1 #1  # Hz
   acc: 10 #1.53 #1.6 #1.4  # Hz
   ic: 10 #.3 # 0.3  # Hz
   sc: 10
@@ -27,7 +27,7 @@ external_firing_rate:
 
 # connectivity
 synapses_probability:  # probability of synapses between two populations
-  vmh2pag: 0.30
+  vmh2pag: 1
   acc2pag: 0.30
   ic2pag: 0.25
   sc2pag: 0.20
@@ -36,7 +36,7 @@ synapses_probability:  # probability of synapses between two populations
 
 target_synapse_silencing_probability: 
 # probability that a PAG neuron receives no inputs from a source population at all.
-  vmh2pag: 0.10
+  vmh2pag: 0
   acc2pag: 0.10
   ic2pag: 0.10
   sc2pag: 0.10
@@ -44,7 +44,7 @@ target_synapse_silencing_probability:
 
 source_synapse_silencing_probability:
 # probability that a source neuron does not project to any PAG neuron at all.
-  vmh2pag: 0.10
+  vmh2pag: 0
   acc2pag: 0.10
   ic2pag: 0.10
   sc2pag: 0.10
@@ -90,10 +90,10 @@ enabled_synapses:  # turn off/on certain connections
   # vglut2vglut:  true
   # vglut2vgat:   false
   vmh2pag: True
-  acc2pag: True
-  ic2pag: True
-  sc2pag: True
-  pmd2pag: True
+  acc2pag: False
+  ic2pag: False
+  sc2pag: False
+  pmd2pag: False
 
 # -------------------------------- synapse properties -------------------------------- #
 
@@ -171,7 +171,7 @@ synapse_gmax_early:  # synaptic weights, in nS
   # vgat2vgat:    .001 # change to change weights
   # vglut2vglut:  .11 #change to change weights 
   # vglut2vgat:   .001 #change to change weights
-  vmh2pag:   4.5
+  vmh2pag:   8
   acc2pag:   6
   ic2pag:    7.5
   sc2pag:    9
