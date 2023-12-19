@@ -1,7 +1,7 @@
 # --------------------------------- METADATA --------------------------------- #
 experiment: block
 save_path: './save'
-save_name: pagsim_w_stimuli_1200s
+save_name: pagsim_w_stimuli_short_inh
 save_format: npy  # npy or mat
 b2_DEBUG: false  # keep brian2 debug logs?
 
@@ -12,6 +12,7 @@ n_acc: 32
 n_ic: 32
 n_sc: 32
 n_pmd: 32
+n_inh: 16 
 
 n_pag: 4
 
@@ -24,6 +25,7 @@ external_firing_rate:
   ic: 10 #.3 # 0.3  # Hz
   sc: 10
   pmd: 10
+  inh: 10
 
 # connectivity
 synapses_probability:  # probability of synapses between two populations
@@ -32,6 +34,7 @@ synapses_probability:  # probability of synapses between two populations
   ic2pag: 0.25
   sc2pag: 0.20
   pmd2pag: 0.15
+  inh2pag: 1.00
   # requires experimental backing
 
 target_synapse_silencing_probability: 
@@ -41,6 +44,7 @@ target_synapse_silencing_probability:
   ic2pag: 0.10
   sc2pag: 0.10
   pmd2pag: 0.10
+  inh2pag: 0.00
 
 source_synapse_silencing_probability:
 # probability that a source neuron does not project to any PAG neuron at all.
@@ -49,6 +53,7 @@ source_synapse_silencing_probability:
   ic2pag: 0.10
   sc2pag: 0.10
   pmd2pag: 0.10
+  inh2pag: 0.00
 
 
 connectivity_kernel:  # (ones, diagonal, inverted_diagonal) or none
@@ -63,6 +68,8 @@ connectivity_kernel:  # (ones, diagonal, inverted_diagonal) or none
   ic2pag: none
   sc2pag: none
   pmd2pag: none
+  inh2pag: none
+
 
 
 connectivity_kernel_width:  # width (std) of the kernel in degrees 
@@ -94,6 +101,7 @@ enabled_synapses:  # turn off/on certain connections
   ic2pag: True
   sc2pag: True
   pmd2pag: True
+  inh2pag: True
 
 # -------------------------------- synapse properties -------------------------------- #
 
@@ -148,6 +156,7 @@ synapse_gmax_noise_std:  # std of noise for synapses
   ic2pag:    0.5
   sc2pag:    0.5
   pmd2pag:   0.5
+  inh2pag:   0.5
 
 
 synapse_gmax_scaling: #multiplies both gmax early and late 
@@ -162,6 +171,7 @@ synapse_gmax_scaling: #multiplies both gmax early and late
   ic2pag:    1
   sc2pag:    1
   pmd2pag:   1
+  inh2pag:   1
 
 #### properties of early response component 
 synapse_gmax_early:  # synaptic weights, in nS
@@ -176,6 +186,7 @@ synapse_gmax_early:  # synaptic weights, in nS
   ic2pag:    7.5
   sc2pag:    9
   pmd2pag:   10.5
+  inh2pag:   -3.0
 
 tau1_early:  # rise time synaptic conductance | in milliseconds
   # rsp2vglut:    2.413 
@@ -189,6 +200,7 @@ tau1_early:  # rise time synaptic conductance | in milliseconds
   ic2pag:    1
   sc2pag:    1
   pmd2pag:   1
+  inh2pag:   1
   
 tau2_early:  # Decay time synaptic conductance | in milliseconds
   # rsp2vglut:    3.384
@@ -202,6 +214,7 @@ tau2_early:  # Decay time synaptic conductance | in milliseconds
   ic2pag:    2
   sc2pag:    2
   pmd2pag:   2
+  inh2pag:   2
 
 #### properties of late response component (only used if stype = biExp): this is late only if tau1_late>tau1_early and tau2_late>tau2_early
 
@@ -217,6 +230,7 @@ synapse_gmax_late:  # synaptic weights, in nS
   ic2pag:    .05
   sc2pag:    .05
   pmd2pag:   .05
+  inh2pag:   .05
 
 tau1_late:  # rise time synaptic conductance | in milliseconds
   # rsp2vglut:    10.0 
@@ -230,6 +244,7 @@ tau1_late:  # rise time synaptic conductance | in milliseconds
   ic2pag:    0
   sc2pag:    0
   pmd2pag:   0
+  inh2pag:   0
   
 tau2_late:  # Decay time synaptic conductance | in milliseconds
   # rsp2vglut:    9.772
@@ -242,7 +257,8 @@ tau2_late:  # Decay time synaptic conductance | in milliseconds
   acc2pag:   0
   ic2pag:    0
   sc2pag:    0
-  pmd2pag:   0 
+  pmd2pag:   0
+  inh2pag:   0
 
 # # -------------------------------- plasticity:  -------------------------------- #
 # # ONLY FOR EARLY COMPONENT, meaning late component does not have plasticity.
@@ -258,6 +274,7 @@ plasticity:  # has to be a string with values: "off", "both", ["stf", "std" they
   ic2pag:    "off"
   sc2pag:    "off"
   pmd2pag:   "off"
+  inh2pag:   "off"
 
 # taud:  # Decay time synaptic depression | in milliseconds
 #   rsp2vglut:    250
@@ -287,6 +304,7 @@ U_experimental: # proportion of trials with non-failures (measured experimentall
   ic2pag:    1
   sc2pag:    1
   pmd2pag:   1
+  inh2pag:   1
 
 U:  # Release probability (increment?)
   # rsp2vglut:    .1
@@ -300,6 +318,7 @@ U:  # Release probability (increment?)
   ic2pag:    1
   sc2pag:    1
   pmd2pag:   1
+  inh2pag:   1
 
 u:  # Fraction of available resources ready for use (release probability - it should be the same of big U)
 #   rsp2vglut:    .01
@@ -313,6 +332,7 @@ u:  # Fraction of available resources ready for use (release probability - it sh
   ic2pag:    .1
   sc2pag:    .1
   pmd2pag:   .1
+  inh2pag:   .1
 
 X:  # Fraction of resources that remain available after neurotransmitter depletion 
   # rsp2vglut:    1
@@ -326,3 +346,4 @@ X:  # Fraction of resources that remain available after neurotransmitter depleti
   ic2pag:    0
   sc2pag:    0
   pmd2pag:   0
+  inh2pag:   0

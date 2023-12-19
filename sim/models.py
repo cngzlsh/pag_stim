@@ -46,15 +46,16 @@ class FeedForwardModel:
         )
 
         self.VMH = VMH(n=self.params['n_vmh'])                     # ventromedial nucleus of the hypothalamus
-        self.ACC = ACC(n=self.params['n_acc'])  # anterior cingulate cortex
+        self.ACC = ACC(n=self.params['n_acc'])                      # anterior cingulate cortex
         self.IC = IC(n=self.params['n_ic'])                       # inferior coliculus
         self.SC = SC(n=self.params['n_sc'])                          # superior coliculus
         self.PMD = PMD(n=self.params['n_pmd'])                         # premotor cortex
+        self.INH = InhNeuron(n=self.params['n_inh'])
 
         self.PAG = PAG(n=self.params['n_pag'])
 
         # collect all neuron popolations into brain 2 objexts
-        self.neuron_populations = [self.VMH, self.ACC, self.IC, self.SC, self.PMD, self.PAG]
+        self.neuron_populations = [self.VMH, self.ACC, self.IC, self.SC, self.PMD, self.INH, self.PAG]
         for population in self.neuron_populations:
             if population is not None:
                 self.b2_objects.extend(
@@ -204,7 +205,37 @@ class FeedForwardModel:
 
             self.synapses.append(self.syn_sc2pag)
 
-        # PMD -> PAG
+        # Inhibitory -> PAG
+        if self.INH is not None and self.params['enabled_synapses']['inh2pag']:
+            self.syn_inh2pag = self.INH.make_synapses(
+                name='inh2pag',
+                target=self.PAG,
+                source='inh',
+                stype=self.params['stype']['inh2pag'],
+                plasticity='off', # set all plasticity to off for now
+                # g_early_plasticity_correction = self.params["U_experimental"]["vmh2pag"]/self.params["U"]["vmh2pag"],
+                p=self.params["synapses_probability"]["inh2pag"],
+                # tauf=self.params["tauf"]["vmh2pag"],
+                # taud=self.params["taud"]["vmh2pag"],
+                X=self.params["X"]["inh2pag"],
+                U=self.params["U"]["inh2pag"],
+                tau1_early=self.params["tau1_early"]["inh2pag"],
+                tau2_early=self.params["tau2_early"]["inh2pag"],
+                tau1_late=self.params["tau1_late"]["inh2pag"],
+                tau2_late=self.params["tau2_late"]["inh2pag"],
+                g_ratio = self.params["synapse_gmax_late"]["inh2pag"]/ self.params["synapse_gmax_early"]["inh2pag"],
+                E_rev = self.params["E_rev"]['AMPA']
+            )
+            self.INH.set_synapses_weights(
+                weight = self.params["synapse_gmax_early"]["inh2pag"] * self.params["synapse_gmax_scaling"]["inh2pag"],
+                std = self.params["synapse_gmax_noise_std"]["inh2pag"],
+                target_synapse_silencing_probability = self.params["target_synapse_silencing_probability"]["inh2pag"],
+                source_synapse_silencing_probability = self.params["source_synapse_silencing_probability"]["inh2pag"],
+            )
+            
+            self.synapses.append(self.syn_inh2pag)
+            
+            # PMD -> PAG
         if self.PMD is not None and self.params['enabled_synapses']['pmd2pag']:
             self.syn_pmd2pag = self.PMD.make_synapses(
                 name='pmd2pag',

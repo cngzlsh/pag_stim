@@ -177,6 +177,39 @@ class PMD(conductancebasedLIF):
         self.inputs_monitor = StateMonitor(self.neurons, "I_stim", record=True)
         self.objects.append(self.inputs_monitor)
 
+class InhNeuron(conductancebasedLIF):
+    name = "InhNeuron"
+    eqs = """
+        I_stim : amp
+        dv/dt = (
+        - G_leak * (v-E_leak)
+        + I_stim
+        - G_spont * s_spont * (v-E_spont)
+        )/Cm : volt (unless refractory)
+        ds_spont/dt = -s_spont/tau_spont : 1
+    """
+    reset = "v=reset_v;"  # reset expression
+    threshold = "v>threshold_v"  # threshold expression
+
+    # ---------------------------------- params ---------------------------------- #
+    threshold_v = -50 * b2.mV  # when voltage > th: spike
+    reset_v = -60 * b2.mV  # reset voltage
+    refractory = 2 * b2.ms
+
+    # cunductances etc
+    Cm = 0.5 * b2.nF  # membrane capacitance of excitatory neurons
+    G_leak = 25.0 * b2.nS  # leak conductance
+    E_leak = -70.0 * b2.mV  # reversal potential
+
+    clamp = 'IC'
+
+    def __init__(self, n=100):
+        super().__init__(n=n)
+
+        # create a monitor to keep track of the inputs
+        self.inputs_monitor = StateMonitor(self.neurons, "I_stim", record=True)
+        self.objects.append(self.inputs_monitor)
+    
 # DOWNSTREAM NEURONS
 
 class PAG(conductancebasedLIF):
