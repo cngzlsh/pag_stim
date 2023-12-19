@@ -14,13 +14,13 @@ n_sc: 32
 n_pmd: 32
 n_inh: 16 
 
-n_pag: 4
+n_pag: 1
 
 
 # external Poisson spiking units
 n_external: 500  # for each of the 5 populations
 external_firing_rate: 
-  vmh: 10 #1 #1  # Hz
+  vmh: 30 #1 #1  # Hz
   acc: 10 #1.53 #1.6 #1.4  # Hz
   ic: 10 #.3 # 0.3  # Hz
   sc: 10
@@ -29,7 +29,7 @@ external_firing_rate:
 
 # connectivity
 synapses_probability:  # probability of synapses between two populations
-  vmh2pag: 0.30
+  vmh2pag: 1
   acc2pag: 0.30
   ic2pag: 0.25
   sc2pag: 0.20
@@ -39,7 +39,7 @@ synapses_probability:  # probability of synapses between two populations
 
 target_synapse_silencing_probability: 
 # probability that a PAG neuron receives no inputs from a source population at all.
-  vmh2pag: 0.10
+  vmh2pag: 0
   acc2pag: 0.10
   ic2pag: 0.10
   sc2pag: 0.10
@@ -48,7 +48,7 @@ target_synapse_silencing_probability:
 
 source_synapse_silencing_probability:
 # probability that a source neuron does not project to any PAG neuron at all.
-  vmh2pag: 0.10
+  vmh2pag: 0
   acc2pag: 0.10
   ic2pag: 0.10
   sc2pag: 0.10
@@ -181,7 +181,7 @@ synapse_gmax_early:  # synaptic weights, in nS
   # vgat2vgat:    .001 # change to change weights
   # vglut2vglut:  .11 #change to change weights 
   # vglut2vgat:   .001 #change to change weights
-  vmh2pag:   4.5
+  vmh2pag:   8
   acc2pag:   6
   ic2pag:    7.5
   sc2pag:    9
