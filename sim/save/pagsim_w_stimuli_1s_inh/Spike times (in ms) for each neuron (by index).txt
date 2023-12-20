@@ -1,0 +1,1 @@
+Spike times (in ms) for each neuron (by index)

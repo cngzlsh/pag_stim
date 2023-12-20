@@ -23,7 +23,7 @@ def plot_rasters(pops, mode='all', path='./figs/'):
     clean_axes(f)
 
     # spikes rasters
-    colors = ('b', 'c', 'g', 'm', 'y', 'r')
+    colors = ('b', 'c', 'g', 'm', 'y', 'r', 'k')
     for ax, pop, color in zip(axes, pops, colors):
         if mode == 'all':
             ax.scatter(pop.spikes.t / ms, pop.spikes.i, s=5, color=color)

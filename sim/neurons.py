@@ -220,6 +220,7 @@ class PAG(conductancebasedLIF):
         I_ic : amp
         I_sc : amp
         I_pmd : amp
+        I_inh: amp
         dv/dt = (
         - G_leak * (v-E_leak)
         - I_acc
@@ -227,6 +228,7 @@ class PAG(conductancebasedLIF):
         - I_ic
         - I_sc
         - I_pmd
+        - I_inh
         - G_spont * s_spont * (v-E_spont)
         )/Cm : volt (unless refractory)
         ds_spont/dt = -s_spont/tau_spont : 1

@@ -97,10 +97,10 @@ class Experiment:
         # for plotting exptal traces, string should be in format: 'pre2post_inputs'
 
         # summary plots
-        if 'rasters' in list_of_plots: utils.plot_rasters(self.model.neuron_populations, mode='all', path='./figs/'+self.name+'/')
+        if 'rasters' in list_of_plots: utils.plot_rasters(self.model.neuron_populations, mode='all', path='./save/'+self.model.params['save_name']+'/')
         if 'voltages' in list_of_plots: utils.plot_voltages(self.model.neuron_populations, self.params)
-        if 'single_PAG_neuron_V_trace' in list_of_plots: utils.plot_single_neuron_V_trace(self.model.PAG, path='./figs/'+self.name+'/')
-        if 'weight_matrices' in list_of_plots: utils.plot_weight_matrices(self.model.neuron_populations, path='./figs/'+self.name+'/')
+        if 'single_PAG_neuron_V_trace' in list_of_plots: utils.plot_single_neuron_V_trace(self.model.PAG, path='./save/'+self.model.params['save_name']+'/')
+        if 'weight_matrices' in list_of_plots: utils.plot_weight_matrices(self.model.neuron_populations, path='./save/'+self.model.params['save_name']+'/')
         input_fitting_list = [x for x in list_of_plots if 'inputs' in x]
         
         
