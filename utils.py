@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.distributions as dist
+from torch.utils.data import Dataset
 import pandas as pd
 from loguru import logger
 from tqdm import tqdm
@@ -109,3 +110,19 @@ def convolve_spike_train(spike_bins, bin_size=1, kernel='exponential', kernel_pa
             convolved_signals = np.convolve(spike_bins, exponential_kernel, mode='same')
     
     return convolved_signals
+
+class BNN_Dataset(Dataset):
+    '''
+    Dataset class for creating iterable dataloader
+    '''
+    def __init__(self, X, Y):
+        self.inputs = X
+        self.labels = Y
+
+    def __len__(self):
+        return len(self.inputs)
+    
+    def __getitem__(self, idx):
+        input = self.inputs[idx,:]
+        label = self.labels[idx,:]
+        return input, label

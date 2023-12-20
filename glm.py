@@ -2,6 +2,7 @@ from matplotlib.pylab import logistic
 import numpy as np
 from loguru import logger
 import copy
+from utils import BNN_Dataset
 
 # the following are numpy implementation of GLMs.
 
@@ -178,6 +179,7 @@ class BernoulliGLMwReg(BernoulliGLM):
 import torch
 import torch.nn as nn
 import torch.distributions as dist
+from torch.utils.data import DataLoader
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 class BernoulliGLMPyTorch(nn.Module):
@@ -308,13 +310,23 @@ class BernoulliGLMPyTorch(nn.Module):
         else:
             return loss_with_grad
     
-    def fit(self, X, y, n_iter, lr=1e-3, verbose=1, decay=1):
+    def fit(self, X, y, n_iter, lr=1e-3, verbose=1, decay=1, batch_size=-1):
         '''
-        verbose:    -1: prints nothing; 0: prints initial and final losses; 1: prints 20 steps; 2: prints all steps.
+        verbose:        -1: prints nothing; 0: prints initial and final losses; 1: prints 20 steps; 2: prints all steps.
+        decay:          exponential decay of learning rate.
+        batch_size:     defaults to -1, using all data at once; 'auto': using 1/10 data at once; a number: specified batch size
         '''
         if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
             X = torch.FloatTensor(X).to(device)
             y = torch.FloatTensor(y).to(device)
+        
+        if batch_size == -1:
+            batch_size = int(np.prod(y.shape))
+        elif batch_size == 'auto':
+            batch_size = int(np.prod(y.shape)/10)
+        else:
+            assert isinstance(batch_size, int)
+            assert batch_size > 0
         
         if verbose > -1:
             with torch.no_grad(): 
@@ -323,6 +335,7 @@ class BernoulliGLMPyTorch(nn.Module):
             
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay)
+        dataloader = DataLoader(BNN_Dataset(X, y), batch_size=batch_size, drop_last=False, shuffle=False)
             
         self.best_loss = torch.tensor(np.inf)
         best_log_like = self.calc_log_likelihood(X, y)
@@ -330,29 +343,37 @@ class BernoulliGLMPyTorch(nn.Module):
         
         for epoch_i in range(n_iter):
             
-            loss = self.calc_log_likelihood_w_reg(X, y)
-            if loss.detach().cpu().float() < self.best_loss:
+            loss = 0
+            
+            for i, (batch_x, batch_y) in enumerate(iter(dataloader)):
+                optimizer.zero_grad()
+                
+                batch_loss = self.calc_log_likelihood_w_reg(batch_x, batch_y)
+                
+                batch_loss.backward()
+                optimizer.step()
+                
+                loss += batch_loss.item()
+            
+            if loss < self.best_loss:
                 with torch.no_grad():
                     best_log_like, best_regs = self.calc_log_likelihood_w_reg(X, y, return_components=True)
                 best_epoch_i = epoch_i + 1
                 self.best_weight = copy.copy(self.linear.weight.data)
                 self.best_bias = copy.copy(self.linear.bias.data)
-                self.best_loss = loss.detach().cpu().float()
+                self.best_loss = loss
                 self.best_regs = best_regs
             
             if verbose == 2:
-                logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {float(loss.detach().cpu().numpy())}')
+                logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {loss}')
             elif verbose == 1:
                 if (epoch_i+1) % int(n_iter / 20) == 0:
                     with torch.no_grad():
                         epoch_log_like, epoch_regs= self.calc_log_likelihood_w_reg(X, y, return_components=True)
                     logger.debug(f'Step {epoch_i+1}. Log like: {epoch_log_like.cpu().float()}, loss {epoch_log_like.cpu().float()+np.sum(list(epoch_regs.cpu().numpy()))}, of which regs {list(epoch_regs.cpu().numpy())} respectively for {self.accepted_regs}.')
             
-            loss.backward()
-            optimizer.step()
             scheduler.step()
-            optimizer.zero_grad()
-        
+            
         if verbose > -1:
            
                 logger.debug(f'Training complete with best log like: {best_log_like.cpu().float()}, best loss: {self.best_loss}, of which regs {list(best_regs.cpu().numpy())} respectively for {self.accepted_regs} at epoch {best_epoch_i}.')
