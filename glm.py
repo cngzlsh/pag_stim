@@ -310,7 +310,7 @@ class BernoulliGLMPyTorch(nn.Module):
         else:
             return loss_with_grad
     
-    def fit(self, X, y, n_iter, lr=1e-3, verbose=1, decay=1):
+    def fit(self, X, y, n_iter, lr=1e-3, verbose=1, decay=1, batch_size=-1):
         '''
         verbose:        -1: prints nothing; 0: prints initial and final losses; 1: prints 20 steps; 2: prints all steps.
         decay:          exponential decay of learning rate.
