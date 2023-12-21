@@ -310,7 +310,7 @@ class BernoulliGLMPyTorch(nn.Module):
         else:
             return loss_with_grad
     
-    def fit(self, X, y, n_iter, lr=1e-3, verbose=1, decay=1, batch_size=-1):
+    def fit(self, X, y, n_iter, lr=1e-3, verbose=1, decay=1):
         '''
         verbose:        -1: prints nothing; 0: prints initial and final losses; 1: prints 20 steps; 2: prints all steps.
         decay:          exponential decay of learning rate.
@@ -335,7 +335,7 @@ class BernoulliGLMPyTorch(nn.Module):
             
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay)
-        dataloader = DataLoader(BNN_Dataset(X, y), batch_size=batch_size, drop_last=False, shuffle=False)
+        # dataloader = DataLoader(BNN_Dataset(X, y), batch_size=batch_size, drop_last=False, shuffle=False)
             
         self.best_loss = torch.tensor(np.inf)
         best_log_like = self.calc_log_likelihood(X, y)
@@ -343,17 +343,19 @@ class BernoulliGLMPyTorch(nn.Module):
         
         for epoch_i in range(n_iter):
             
-            loss = 0
+            optimizer.zero_grad()
+            # loss = 0
+            loss = self.calc_log_likelihood_w_reg(X, y)
             
-            for i, (batch_x, batch_y) in enumerate(iter(dataloader)):
-                optimizer.zero_grad()
+            # for i, (batch_x, batch_y) in enumerate(iter(dataloader)):
+            #     optimizer.zero_grad()
                 
-                batch_loss = self.calc_log_likelihood_w_reg(batch_x, batch_y)
+            #     batch_loss = self.calc_log_likelihood_w_reg(batch_x, batch_y)
                 
-                batch_loss.backward()
-                optimizer.step()
+            #     batch_loss.backward()
+            #     optimizer.step()
                 
-                loss += batch_loss.item()
+            #     loss += batch_loss.item()
             
             if loss < self.best_loss:
                 with torch.no_grad():
@@ -372,6 +374,8 @@ class BernoulliGLMPyTorch(nn.Module):
                         epoch_log_like, epoch_regs= self.calc_log_likelihood_w_reg(X, y, return_components=True)
                     logger.debug(f'Step {epoch_i+1}. Log like: {epoch_log_like.cpu().float()}, loss {epoch_log_like.cpu().float()+np.sum(list(epoch_regs.cpu().numpy()))}, of which regs {list(epoch_regs.cpu().numpy())} respectively for {self.accepted_regs}.')
             
+            loss.backward()
+            optimizer.step()
             scheduler.step()
             
         if verbose > -1:
