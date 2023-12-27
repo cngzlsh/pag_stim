@@ -1,14 +1,15 @@
+
 import pymc as pm
 import numpy as np
-import theano.tensor as tt
+# np.bool = np.bool_
+import aesara.tensor as at
 import pickle
 from utils import *
 
 n_groups = 5
-n_neurons_per_group = [1,1,1,1,1]
 n_components = 3
 
-sim_data_path = './sim/save/pagsim_w_stimuli_1s_inh/'
+sim_data_path = './sim/save/pagsim_w_stimuli_600s_inh/'
 brain_regions = [
                 'VMH',
                 'ACC',
@@ -60,9 +61,9 @@ if __name__ == '__main__':
     with pm.Model() as model:
         
         # priors for mixture components
-        mu = pm.Normal('mu', mu=0, sd=10, shape=(n_groups, n_components))
-        sigma = pm.HalfNormal('sigma', sd=10, shape=(n_groups, n_components))
-        bias = pm.Normal('global_bias', mu=0, sd=10)
+        mu = pm.Normal('mu', mu=0, sigma=10, shape=(n_groups, n_components))
+        sigma = pm.HalfNormal('sigma', sigma=10, shape=(n_groups, n_components))
+        bias = pm.Normal('global_bias', mu=0, sigma=10)
         r = pm.Dirichlet('w',
                         a=np.ones(n_components),
                         shape=(n_groups, n_components))
@@ -74,12 +75,12 @@ if __name__ == '__main__':
                                     w=r[m],
                                     mu=mu[m],
                                     sigma=sigma[m],
-                                    shape=n_neurons_per_group[m])
+                                    shape=(1,int(n_neurons_per_group[m])))
             weights.append(weight)
             
-        all_weights = tt.concatenate(weights)
+        all_weights = at.concatenate(weights)
         
-        y_est = pm.math.sigmoid(tt.dot(X_train, all_weights) + bias)
+        y_est = pm.math.sigmoid(at.dot(X_train, all_weights) + bias)
         
         likelihood = pm.Bernoulli('likelihood', p=y_est, observed=y_train)
         
