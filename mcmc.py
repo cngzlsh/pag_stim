@@ -28,8 +28,8 @@ n_PAG_to_use = 1 # specify how many PAG neurons to learn
 
 train_start = 0
 train_end = 0.8
-test_start = 0.8
-test_end = 1.001
+test_start = 8
+test_end = 10
 
 
 if __name__ == '__main__':
@@ -75,13 +75,14 @@ if __name__ == '__main__':
                                     w=r[m],
                                     mu=mu[m],
                                     sigma=sigma[m],
-                                    shape=(1,int(n_neurons_per_group[m])))
+                                    shape=int(n_neurons_per_group[m]))
             weights.append(weight)
             
-        all_weights = at.concatenate(weights)
+        all_weights = at.concatenate(weights).reshape((1,-1))
         
-        y_est = pm.math.sigmoid(at.dot(X_train, all_weights) + bias)
+        y_est = pm.math.sigmoid(at.dot(all_weights, X_train) + bias)
         
         likelihood = pm.Bernoulli('likelihood', p=y_est, observed=y_train)
         
-        trace = pm.sample(1000, tune=500, target_accept=0.95)
+        trace = pm.sample(1000, tune=500, target_accept=0.95, progressbar=True)
+        assert False

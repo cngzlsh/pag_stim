@@ -20,13 +20,13 @@ def compute_cross_corr_single_output(input_spike_data, output_spike_data, max_la
         else:
             input_spike_i = input_spike_data
         correlation = [np.correlate(input_spike_i, np.roll(output_spike_data, lag))[0]
-                       for lag in range(-max_lag, max_lag + 1)]
+                       for lag in range(0, max_lag + 1)]
         corrs[f'Input neuron {i}'] = correlation
     
     return corrs
 
 def plot_cross_corr(corrs, max_lag):
-    lags = np.arange(-max_lag, max_lag + 1)
+    lags = np.arange(0, max_lag + 1)
     
     plt.figure()
     
@@ -36,12 +36,12 @@ def plot_cross_corr(corrs, max_lag):
     plt.xlabel('Lag')
     plt.ylabel('Cross-Correlation')
     plt.title('Cross-Correlation between Input Neurons and Output Neuron')
-    plt.legend()
+    # plt.legend()
     plt.show()
         
 
 
-sim_data_path = './sim/save/pagsim_w_stimuli_1s_inh/'
+sim_data_path = './sim/save/pagsim_w_stimuli_400s_inh1/'
 brain_regions = [
                 'VMH',
                 'ACC',
@@ -61,6 +61,9 @@ pag_timings = extract_timings(pag_df, 'PAG')
 pag_binned_spikes = bin_spikes(pag_timings, start_time=0, end_time=_total_length, bin_size=0.001)[:n_PAG_to_use]
 print(f'Average PAG firing rate: {np.sum(pag_binned_spikes) / pag_binned_spikes.shape[0] / _total_length} Hz.')
 
+print(n_neurons_per_group)
 
-corrs = compute_cross_corr_single_output(presyn_binned[0:5,:], pag_binned_spikes, 10)
-plot_cross_corr(corrs, 10)
+max_lag = 12
+corrs = compute_cross_corr_single_output(presyn_binned, pag_binned_spikes, max_lag)
+plot_cross_corr(corrs, max_lag)
+
