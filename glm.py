@@ -171,7 +171,7 @@ class BernoulliGLMwReg(BernoulliGLM):
             i=0
             raise NotImplementedError('I think the memory requirement is too big for this, also I cba to compute the second derivative by hand')
         
-        logger.debug(f'Training complete at {i+1} steps. Log likelihood: {self.calc_log_likelihood(X, y).flatten()}; loss: {self.calc_cost(X,y).flatten()}')
+        logger.debug(f'Training complete at {n_iter} steps. Log likelihood: {self.calc_log_likelihood(X, y).flatten()}; loss: {self.calc_cost(X,y).flatten()}')
         group_means, group_stds = self.calc_group_statistics()
         logger.debug(f'Mean weights by neuron groups: {list(group_means)}; std: {list(group_stds)}.')
 
@@ -242,7 +242,8 @@ class BernoulliGLMPyTorch(nn.Module):
             if isinstance(reg_params['weights_within_group'], int) or isinstance(reg_params['weights_within_group'], float):
                 self.reg_params['weights_within_group'] = reg_params['weights_within_group'] * torch.ones(self.n_groups)
             reg_params.pop('weights_within_group')
-        self.reg_params.update(reg_params)
+            
+        self.reg_params.update(reg_params) # type: ignore
             
         self.accepted_regs = ['weights_within_group', 'weights_sparsity', 'beta']
         for reg in self.regs:
@@ -322,7 +323,7 @@ class BernoulliGLMPyTorch(nn.Module):
         if batch_size == -1:
             batch_size = int(np.prod(y.shape))
         elif batch_size == 'auto':
-            batch_size = int(np.prod(y.shape)/10)
+            batch_size = int(np.prod(y.shape)/10) # type: ignore
         else:
             assert isinstance(batch_size, int)
             assert batch_size > 0
@@ -339,6 +340,7 @@ class BernoulliGLMPyTorch(nn.Module):
         self.best_loss = torch.tensor(np.inf)
         best_log_like = self.calc_log_likelihood(X, y)
         best_epoch_i = 1
+        best_log_like, best_regs = torch.tensor(float('inf')), torch.tensor(float('inf'))
         
         for epoch_i in range(n_iter):
             
@@ -359,6 +361,7 @@ class BernoulliGLMPyTorch(nn.Module):
             if loss < self.best_loss:
                 with torch.no_grad():
                     best_log_like, best_regs = self.calc_log_likelihood_w_reg(X, y, return_components=True)
+                    
                 best_epoch_i = epoch_i + 1
                 self.best_weight = copy.copy(self.linear.weight.data)
                 self.best_bias = copy.copy(self.linear.bias.data)
@@ -373,12 +376,11 @@ class BernoulliGLMPyTorch(nn.Module):
                         epoch_log_like, epoch_regs= self.calc_log_likelihood_w_reg(X, y, return_components=True)
                     logger.debug(f'Step {epoch_i+1}. Log like: {epoch_log_like.cpu().float()}, loss {epoch_log_like.cpu().float()+np.sum(list(epoch_regs.cpu().numpy()))}, of which regs {list(epoch_regs.cpu().numpy())} respectively for {self.accepted_regs}.')
             
-            loss.backward()
+            loss.backward() # type: ignore
             optimizer.step()
             scheduler.step()
             
         if verbose > -1:
-           
                 logger.debug(f'Training complete with best log like: {best_log_like.cpu().float()}, best loss: {self.best_loss}, of which regs {list(best_regs.cpu().numpy())} respectively for {self.accepted_regs} at epoch {best_epoch_i}.')
     
     def load_best_params(self):
@@ -571,7 +573,7 @@ if __name__ == '__main__':
                                                   reg_params={
                                                       'weights_within_group':1,
                                                       'weights_sparsity': 1,
-                                                  },
+                                                  }, # type: ignore
                                                   history=3)
     glm.fit(X_train.T, y_train.T, n_iter= 100)
     glm.get_history_filter_weights()

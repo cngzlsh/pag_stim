@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.signal as signal
 import scipy.stats as stats
+from torch import threshold
 from tqdm import tqdm
 import pickle
 from utils import *
@@ -115,8 +116,28 @@ def check_if_inh_and_connected(i, n_neurons_per_group, conns, pag_idx, thresh=64
                 i = i - cum_neurons_per_group[n-1]
                 return i > thresh -1, conns[n][pag_idx, i] >0
             
-def peak_detection(corrs, lags):
-    pass
+def peak_detection(corr, lags, threshold=0.001):
+    peaks = []
+    length = len(lags)
+    
+    for i in range(1, length - 1):
+        if abs(corr[i]) > threshold and (
+            (corr[i] > corr[i-1] and corr[i] > corr[i+1]) or
+            (corr[i] < corr[i-1] and corr[i] < corr[i+1])
+        ):
+            peaks.append(lags[i])
+        
+    return peaks
+
+def peak_detection_multi_neurons(corrs, lags, threshold=0.001):
+    n_input_neurons = len(list(corrs.values()))
+    all_peaks = []
+    for n in range(n_input_neurons):
+        peaks = peak_detection(list(corrs.values())[n], lags, threshold=threshold)
+        all_peaks.append(peaks)
+    all_peaks_flattened = [x for peaks in all_peaks for x in peaks]
+    return np.unique(np.array(all_peaks_flattened), return_counts=True)
+    
 
 if __name__ == '__main__':
 
@@ -132,7 +153,9 @@ if __name__ == '__main__':
         conns = pickle.load(f)
     
     presyn_binned = np.load(sim_data_path+'presyn_binned.npy')
-    # presyn_smooth = np.load(sim_data_path+'presyn_exponential_smooth.npy')
+    
+    presyn_smooth = np.load(sim_data_path+'presyn_exponential_smooth.npy')
+    
     bin_size = 0.001
     n_excitatory_cells_per_group = [64, 64, 64, 64, 64]
     n_PAG_to_use = 1
@@ -147,6 +170,7 @@ if __name__ == '__main__':
     print(n_neurons_per_group)
 
     max_lag = 10
+    lags = np.arange(-max_lag, max_lag + 1)
     for p in range(n_PAG_to_use):
         # lags, corr = xcorr(presyn_binned[:,:], pag_binned_spikes[p,:])
        

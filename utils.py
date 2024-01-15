@@ -93,8 +93,10 @@ def convolve_spike_train(spike_bins, bin_size=1, kernel='exponential', kernel_pa
     n_bins = spike_bins.shape[-1]
     convolved_signals = np.zeros_like(spike_bins)
     t_vector = np.arange(0, n_bins*bin_size, bin_size)
+    
     tau = kernel_params['tau']
-    exponential_kernel = np.exp(-t_vector / tau)
+    # exponential_kernel = np.exp(-t_vector / tau) # kernel = np.exp(-np.arange(0, 5 * tau) / tau)
+    exponential_kernel = np.concatenate((np.zeros(5*tau-1), np.exp(-np.arange(0, 5 * tau) / tau)))
     
     if len(spike_bins.shape) == 2:
         n_neurons, _ = spike_bins.shape

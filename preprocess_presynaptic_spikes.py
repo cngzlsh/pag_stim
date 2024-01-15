@@ -13,7 +13,7 @@ np.random.seed(1234)
 
 source_folder = './sim/save/pagsim_w_stimuli_600s_inh32/' # fd + brain_region + '_spike_times.json'
 synthetic = True
-pre_convolve_spikes = False
+pre_convolve_spikes = True
 n_PAG = 16
 bin_size = 0.001 # secs
 kernel = 'exponential'
@@ -31,6 +31,7 @@ brain_regions = [
                 ]
 
 if __name__ == '__main__':
+    
     all_dfs = []
     all_timings = []
     all_binned_spikes = []
@@ -83,10 +84,13 @@ if __name__ == '__main__':
     n_neurons_per_group = np.array([len(i) for i in all_dfs])
     
     X_binned = np.vstack(all_binned_spikes)
-    X_smooth = np.zeros_like(X_binned)
+    # X_smooth = np.zeros_like(X_binned)
     if pre_convolve_spikes:
-        for neuron in tqdm(range(X_binned.shape[0])):
-            X_smooth[neuron,:] = convolve_spike_train(X_binned[neuron,:], bin_size=1, kernel=kernel, kernel_params=kernel_param)
+        X_smooth = convolve_spike_train(X_binned, bin_size=1, kernel=kernel, kernel_params=kernel_param)
+        
+        # for neuron in tqdm(range(X_binned.shape[0])):
+        #     X_smooth[neuron,:] = convolve_spike_train(X_binned[neuron,:], bin_size=1, kernel=kernel, kernel_params=kernel_param)
+        #     assert False
     
         
     pag_df = extract_sim_as_df(source_folder, 'PAG')
