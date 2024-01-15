@@ -381,19 +381,12 @@ class conductancebasedLIF:
         else:
             # create weights matrix with noise.
             weights = np.random.normal(weight, std, size=self.synapses.w.shape)
-        
-        if self.synapses.name is not "inh2pag":
-            if np.any(weights < 0):
-                logger.warning(
-                    f"Some synaptic weights are negative with the current settings of mean/std for {self.synapses.name} - SETTING THESE TO ZERO"
-                )
-                weights[weights < 0] = 0
-        else:
-            if np.any(weights > 0):
-                logger.warning(
-                    f"Some inhibitory synaptic weights are positive with the current settings of mean/std for - SETTING THESE TO ZERO"
-                )
-                weights[weights > 0] = 0
+       
+        if np.any(weights < 0):
+            logger.warning(
+                f"Some synaptic weights are negative with the current settings of mean/std for {self.synapses.name} - SETTING THESE TO ZERO"
+            )
+            weights[weights < 0] = 0
 
         num_connections = len(self.synapses.w)
         _from = self.synapses.i

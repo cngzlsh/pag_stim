@@ -10,8 +10,8 @@ random_seed: 0
 
 # ---------------------------- stimulus parameters ---------------------------- #
 use_pulse:   false 
-stim_start_t:  400 # seconds
-stim_end_t: 600 # seconds
+stim_start_t:  601 # seconds
+stim_end_t: 601 # seconds
 stim_strength: 50 #10 # 50 # 50  # nano ampers
 stimulus_center_deg:  0 #  342 
 stimulus_width_deg: 0

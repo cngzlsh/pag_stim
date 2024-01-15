@@ -244,7 +244,6 @@ class BernoulliGLMPyTorch(nn.Module):
             reg_params.pop('weights_within_group')
         self.reg_params.update(reg_params)
             
-        
         self.accepted_regs = ['weights_within_group', 'weights_sparsity', 'beta']
         for reg in self.regs:
             if reg not in self.accepted_regs:

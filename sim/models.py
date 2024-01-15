@@ -224,7 +224,7 @@ class FeedForwardModel:
                 tau1_late=self.params["tau1_late"]["inh2pag"],
                 tau2_late=self.params["tau2_late"]["inh2pag"],
                 g_ratio = self.params["synapse_gmax_late"]["inh2pag"]/ self.params["synapse_gmax_early"]["inh2pag"],
-                E_rev = self.params["E_rev"]['AMPA']
+                E_rev = self.params["E_rev"]['GABA']
             )
             self.INH.set_synapses_weights(
                 weight = self.params["synapse_gmax_early"]["inh2pag"] * self.params["synapse_gmax_scaling"]["inh2pag"],

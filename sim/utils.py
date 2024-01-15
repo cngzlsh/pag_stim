@@ -85,7 +85,7 @@ def plot_weight_matrices(pops, path='./figs/'):
 
     mats = []
     f, axes = plt.subplots(ncols=len(pops)-1, figsize=(12, 9), sharey=True)
-    f._save_name = "spikes_rasters"
+    f._save_name = "weight_matrices"
     f.suptitle("Weight matrices of projections (in nS)")
     clean_axes(f)
     for ax, pop in zip(axes, pops):
@@ -222,7 +222,9 @@ def plot_single_neuron_V_trace(pop, idx='random', path='./figs/'):
     plt.axhline(pop.threshold_v / mV, lw=2, color="k", ls="--")
     plt.axhline(pop.reset_v / mV, lw=2, color="k")
     plt.title(f'Voltage trace for {pop_name} neuron {idx}')
+    plt.ylim([-70, -35])
     plt.savefig(path + 'pag_vtrace.png')
+    plt.show()
     # to be completed
 
 '''
