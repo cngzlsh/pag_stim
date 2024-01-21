@@ -7,6 +7,7 @@ from utils import *
 import numpy as np
 import pandas as pd
 import pickle
+import os
     
 np.random.seed(1234)
 
@@ -21,7 +22,52 @@ kernel_param = {'tau': 15}
 save_folder = 'same'
 has_inh = True
 
+def extract_all_simulation_timings(source_folder, has_inh, brain_regions):
+    
+    '''
+    This function extracts all spikes trains, 
+    preprocesses any inhibitory neurons, 
+    and parse them into timings. 
+    Updates the connectivity file to incorporate 
+    inhibitory neurons accordingly.
+    '''
+    
+    for brain_region in brain_regions:
+        assert os.path.exists(f'{source_folder}+connectivity_{brain_region.lower()}2pag.npy')
+    assert os.path.exists(source_folder+'connectivity_inh2pag.npy')
+    
+    all_dfs = []
+    all_timings = []
 
+    for brain_region in brain_regions:
+        df = extract_sim_as_df(source_folder, brain_region)
+        all_dfs.append(df)
+    
+    if has_inh:
+        inh_df = extract_sim_as_df(source_folder, 'InhNeuron')
+        inh_split_cumu_idx = list(map(int, np.concatenate((np.zeros(1), np.cumsum(np.random.dirichlet(alpha=np.array([1,1,1,1,1]))) * len(inh_df)))))
+        inh_split_idx = [list(np.arange(inh_split_cumu_idx[i], inh_split_cumu_idx[i+1])) for i in range(len(brain_regions))]
+
+    for i, brain_region in enumerate(brain_regions):
+        if has_inh:
+            for j in inh_split_idx[i]:
+                inh_df.at[f'InhNeuron{j}', 'brain_region'] = brain_region
+            all_dfs[i] = pd.concat((all_dfs[i], inh_df.iloc[inh_split_idx[i]]))
+        
+        timings = extract_timings(all_dfs[i], brain_region)
+        all_timings.append(timings)
+        
+    conns = [np.nan_to_num(np.load(f'{source_folder}connectivity_{brain_region.lower()}2pag.npy'),  nan=0.0).T * 1e9 for brain_region in brain_regions]
+    
+    if has_inh:
+        inh_conns = -np.nan_to_num(np.load(f'{source_folder}connectivity_inh2pag.npy'),  nan=0.0).T * 1e9
+        for i, brain_region in enumerate(brain_regions):
+            conns[i] = np.hstack((conns[i], inh_conns[:,inh_split_idx[i]]))
+            assert conns[i].shape[1] == len(all_dfs[i])
+
+    return all_timings, _total_length, conns
+
+ 
 brain_regions = [
                 'VMH',
                 'ACC',
@@ -104,9 +150,9 @@ if __name__ == '__main__':
         if pre_convolve_spikes:
             print('saving convolved...')
             np.save(f'{save_folder}presyn_{kernel}_smooth.npy', X_smooth, allow_pickle=True)
-        else:
-            print('saving binned ...')
-            np.save(f'{save_folder}presyn_binned.npy', X_binned, allow_pickle=True)
+
+        print('saving binned ...')
+        np.save(f'{save_folder}presyn_binned.npy', X_binned, allow_pickle=True)
         np.save(f'{save_folder}n_neurons_per_group.npy', n_neurons_per_group, allow_pickle=True)
         print(f'File saved to {source_folder}')
         

@@ -3,6 +3,7 @@ import numpy as np
 from loguru import logger
 import copy
 from utils import BNN_Dataset
+import os
 
 # the following are numpy implementation of GLMs.
 
@@ -213,9 +214,9 @@ class BernoulliGLMPyTorch(nn.Module):
             self.n_synapses = self.n_sessions * self.n_neurons
             
             neuron_group_cumsum = np.concatenate(([0], np.cumsum(self.n_neurons_per_group))) # cumulative sum of neurons of n_neurons_per_group
-            # the group index of each synapse, len(n_sessions * n_neurons), originally self.neuron_group_idx
+            # the brain region index of each synapse, len(n_sessions * n_neurons), originally self.neuron_group_idx
             self.synapse_origin_group = np.concatenate([np.concatenate([[i for _ in range(self.n_neurons_per_group[i])] for i in range(len(self.n_neurons_per_group))]) for _ in range(n_sessions)]) 
-            # the synapse indices of each group, list of n_group sublists, each sublist contains n_session * n_group_neuron indices, originally group_neuron_idx
+            # the synapse indices of each brain region, list of n_group sublists, each sublist contains n_session * n_group_neuron indices, originally group_neuron_idx
             self.group_synapse_idx = [np.concatenate([np.arange(neuron_group_cumsum[m], neuron_group_cumsum[m+1]) + self.n_neurons * i for i in range(n_sessions)]) for m in range(self.n_groups)]# the neuron index of each group
             
             self.neuron_group_idx = self.synapse_origin_group # deprecated use
@@ -272,7 +273,10 @@ class BernoulliGLMPyTorch(nn.Module):
             X = torch.FloatTensor(X).to(device)
             y = torch.FloatTensor(y).to(device)
         with torch.no_grad():
-            return torch.sum(dist.Bernoulli(probs=self.forward(X)).log_prob(y))
+            if X.is_sparse or y.is_sparse:
+                return (self.linear.weight @ X.T + self.linear.bias) @ y  - torch.sum(torch.log(1 + torch.exp(self.linear.weight @ X.T + self.linear.bias)))
+            else:
+                return torch.sum(dist.Bernoulli(probs=self.forward(X)).log_prob(y))
 
     def calc_log_likelihood_w_reg(self, X, y, return_components=False):
         if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
@@ -303,12 +307,15 @@ class BernoulliGLMPyTorch(nn.Module):
             b = self.linear.bias
             reg_terms[2] = self.reg_params['beta'][0] * b ** self.reg_params['beta'][2] + self.reg_params['beta'][1] * b ** - self.reg_params['beta'][3]
 
-        loss_with_grad = -torch.sum(dist.Bernoulli(probs=self.forward(X)).log_prob(y)) + torch.sum(reg_terms)
+        if X.is_sparse or y.is_sparse:
+            log_like = (self.linear.weight @ X.T + self.linear.bias) @ y  - torch.sum(torch.log(1 + torch.exp(self.linear.weight @ X.T + self.linear.bias)))
+        else:
+            log_like = torch.sum(dist.Bernoulli(probs=self.forward(X)).log_prob(y)) 
         
         if return_components:
-            return - torch.sum(dist.Bernoulli(probs=self.forward(X)).log_prob(y)), reg_terms
+            return -log_like + torch.sum(reg_terms), reg_terms
         else:
-            return loss_with_grad
+            return -log_like + torch.sum(reg_terms)
     
     def fit(self, X, y, n_iter, lr=1e-3, verbose=1, decay=1, batch_size=-1):
         '''
@@ -316,69 +323,93 @@ class BernoulliGLMPyTorch(nn.Module):
         decay:          exponential decay of learning rate.
         batch_size:     defaults to -1, using all data at once; 'auto': using 1/10 data at once; a number: specified batch size
         '''
+        try:
+            self.curr_epoch
+        except:
+            self.curr_epoch = 0
+        best_epoch_i = self.curr_epoch
+            
         if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
-            X = torch.FloatTensor(X).to(device)
-            y = torch.FloatTensor(y).to(device)
+            X = torch.FloatTensor(X)
+            y = torch.FloatTensor(y)
+        
+        if X.is_cuda or y.is_cuda:
+            logger.info('Data stored in VRAM.')
+        else:
+            logger.info('Data stored in RAM.')
+            
+        if X.is_sparse or y.is_sparse:
+            logger.info('Detected sparse Tensor.')
+        else:
+            logger.info('Detected dense Tensor.')
         
         if batch_size == -1:
             batch_size = int(np.prod(y.shape))
         elif batch_size == 'auto':
-            batch_size = int(np.prod(y.shape)/10) # type: ignore
+            batch_size = int(np.prod(y.shape)/100) # type: ignore
         else:
             assert isinstance(batch_size, int)
+            assert batch_size <= int(np.prod(y.shape))
             assert batch_size > 0
+        num_batches = int(np.ceil(int(np.prod(y.shape)/batch_size))) # type: ignore
+        logger.info(f'Training with {num_batches} of batch size {batch_size}.')
         
         if verbose > -1:
             with torch.no_grad(): 
-                init_log_like, init_regs = self.calc_log_likelihood_w_reg(X, y, return_components=True)
+                init_log_like, init_regs = self.calc_log_likelihood_w_reg(X.to(device), y.to(device), return_components=True)
                 logger.debug(f'Training GLM with PyTorch. Initial log like: {init_log_like.cpu().float()}, loss {init_log_like.cpu().float()+np.sum(list(init_regs.cpu().numpy()))}, of which regs {list(init_regs.cpu().numpy())} respectively for {self.accepted_regs}.')
             
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay)
-        # dataloader = DataLoader(BNN_Dataset(X, y), batch_size=batch_size, drop_last=False, shuffle=False)
             
         self.best_loss = torch.tensor(np.inf)
-        best_log_like = self.calc_log_likelihood(X, y)
-        best_epoch_i = 1
         best_log_like, best_regs = torch.tensor(float('inf')), torch.tensor(float('inf'))
         
         for epoch_i in range(n_iter):
             
             optimizer.zero_grad()
-            # loss = 0
-            loss = self.calc_log_likelihood_w_reg(X, y)
+            epoch_loss = 0
+            # loss = self.calc_log_likelihood_w_reg(X, y)
+            self.curr_epoch += 1
             
-            # for i, (batch_x, batch_y) in enumerate(iter(dataloader)):
-            #     optimizer.zero_grad()
+            for batch_i in range(num_batches):
+                if verbose > 2:
+                    print(f'Running batch {batch_i+1}/{num_batches}', end='\r')
                 
-            #     batch_loss = self.calc_log_likelihood_w_reg(batch_x, batch_y)
+                batch_x, batch_y = X[int(batch_i*batch_size):int(batch_i+1)*batch_size].to(device), y[int(batch_i*batch_size):int(batch_i+1)*batch_size].to(device)
                 
-            #     batch_loss.backward()
-            #     optimizer.step()
+                optimizer.zero_grad()
+                batch_loss = self.calc_log_likelihood_w_reg(batch_x, batch_y)
+                batch_loss.backward() # type: ignore
+                optimizer.step()
                 
-            #     loss += batch_loss.item()
+                epoch_loss += batch_loss.item() # type: ignore
             
-            if loss < self.best_loss:
+            if epoch_loss < self.best_loss:
                 with torch.no_grad():
-                    best_log_like, best_regs = self.calc_log_likelihood_w_reg(X, y, return_components=True)
+                    best_log_like, best_regs = self.calc_log_likelihood_w_reg(X.to(device), y.to(device), return_components=True)
                     
-                best_epoch_i = epoch_i + 1
+                best_epoch_i = self.curr_epoch
                 self.best_weight = copy.copy(self.linear.weight.data)
                 self.best_bias = copy.copy(self.linear.bias.data)
-                self.best_loss = loss
+                self.best_loss = epoch_loss
                 self.best_regs = best_regs
             
-            if verbose == 2:
-                logger.debug(f'Step {epoch_i+1}. Log like: {self.calc_log_likelihood(X, y).cpu().float()},  loss: {loss}')
+            if verbose >= 2:
+                logger.debug(f'Step {self.curr_epoch}. Log like: {self.calc_log_likelihood(X.to(device), y.to(device)).cpu().float()},  loss: {epoch_loss}')
             elif verbose == 1:
-                if (epoch_i+1) % int(n_iter / 20) == 0:
+                if (self.curr_epoch) % int(n_iter / 20) == 0:
                     with torch.no_grad():
-                        epoch_log_like, epoch_regs= self.calc_log_likelihood_w_reg(X, y, return_components=True)
-                    logger.debug(f'Step {epoch_i+1}. Log like: {epoch_log_like.cpu().float()}, loss {epoch_log_like.cpu().float()+np.sum(list(epoch_regs.cpu().numpy()))}, of which regs {list(epoch_regs.cpu().numpy())} respectively for {self.accepted_regs}.')
+                        epoch_log_like, epoch_regs= self.calc_log_likelihood_w_reg(X.to(device), y.to(device), return_components=True)
+                    logger.debug(f'Step {self.curr_epoch}. Log like: {epoch_log_like.cpu().float()}, loss {epoch_log_like.cpu().float()+np.sum(list(epoch_regs.cpu().numpy()))}, of which regs {list(epoch_regs.cpu().numpy())} respectively for {self.accepted_regs}.')
             
-            loss.backward() # type: ignore
-            optimizer.step()
+            # loss.backward() # type: ignore
+            # optimizer.step()
             scheduler.step()
+            
+            # force stop safety switch
+            if os.path.exists(os.path.join(os.getcwd(), 'force_stop.txt')):
+                break
             
         if verbose > -1:
                 logger.debug(f'Training complete with best log like: {best_log_like.cpu().float()}, best loss: {self.best_loss}, of which regs {list(best_regs.cpu().numpy())} respectively for {self.accepted_regs} at epoch {best_epoch_i}.')
@@ -514,34 +545,37 @@ class BernoulliGLMwHistoryMultiSessionPyTorch(BernoulliGLMPyTorch):
         Makes a forward prediction
         '''
         if isinstance(X, np.ndarray):
-            X = torch.FloatTensor(X).to(device) # (n_bins * n_sessions, input_shape)
+            X = torch.FloatTensor(X).to(device) # (n_bins * n_PAG_cells, input_shape)
         
         with torch.no_grad():
-            y_hat_naive = self.activation(self.linear(X)) # (n_bins * n_sessions, 1)
-            y_hat_naive = y_hat_naive.reshape(-1, self.n_sessions) # (n_bins, n_sessions)
+            y_hat_naive = self.activation(self.linear(X)) # (n_bins * n_PAG_cells, 1)
+            y_hat_naive = y_hat_naive.reshape(-1, self.n_sessions) # (n_bins, n_PAG_cells)
             n_bins = y_hat_naive.shape[0]
         
-        # y_hat_hist = torch.stack([torch.vstack([torch.zeros((self.history, 1)).to(device), y_hat_naive[c]]) for c in range(self.n_sessions)])
+        # first, create (history + 1) * n_PAG zeros 
         y_hat_hist_sampled = torch.vstack(
-            [torch.zeros(self.history, self.n_sessions).to(device),
-             y_hat_naive])
-             # dist.Bernoulli(probs=y_hat_naive).sample()]) # (n_bins + history, n_sessions) stacked like
+            [torch.zeros(self.history + 1, self.n_sessions).to(device),
+             y_hat_naive]) # now (n_bins + history + 1, n_PAG_cells)
         del y_hat_naive
         
+        # then, apply the history filter to self.history steps
         y_hat_hist_sampled = torch.hstack([
             y_hat_hist_sampled[h:h+n_bins, :] for h in range(self.history) 
         ])
-        assert y_hat_hist_sampled.shape == torch.Size([n_bins, self.history * self.n_sessions]) # (n_bins, n_PAG_cells * n_steps)
-        # re-arrange the tensor such that it's [:, [0,2,4,1,3,5]]
+        assert y_hat_hist_sampled.shape == torch.Size([n_bins, self.history * self.n_sessions]) # (n_bins, n_PAG_cells * history)
         
-        hist_terms = torch.vstack([self.history_filters[c](y_hat_hist_sampled[:, np.arange(c, self.n_sessions*self.history, self.n_sessions)]) for c in range(self.n_sessions)])
+        # re-arrange the tensor such that it's [:, [0,2,4,1,3,5]]
+        hist_terms = torch.vstack([self.history_filters[c](
+            y_hat_hist_sampled[:, np.arange(c, self.n_sessions*self.history, self.n_sessions)]
+            ) for c in range(self.n_sessions)])
         del y_hat_hist_sampled
         
         return self.activation(self.linear(X) + hist_terms)
     
     def get_history_filter_weights(self):
+        # the first element correspond to the filter applied to -1 position
         with torch.no_grad():
-            return torch.vstack([torch.flip(self.history_filters[c].weight.data, [1]) for c in range(self.n_sessions)]) # (n_pag_cells, history)ß
+            return torch.vstack([torch.flip(self.history_filters[c].weight.data, [1]) for c in range(self.n_sessions)]) # (n_PAG_cells, history)
         
 
 if __name__ == '__main__':
