@@ -2,9 +2,22 @@ from matplotlib.pylab import logistic
 import numpy as np
 from loguru import logger
 import copy
-from utils import BNN_Dataset
 import os
+from typing import Union
+from tqdm import tqdm
 
+import numpy as np
+from torch.utils.data import Dataset, DataLoader
+from scipy.sparse import (random, 
+                          coo_matrix,
+                          csr_matrix, 
+                          vstack)
+
+# the following implements glm.fit() function with gradient descent via deep learning library torch.
+import torch
+import torch.nn as nn
+import torch.distributions as dist
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 # the following are numpy implementation of GLMs.
 
 class BernoulliGLM():
@@ -176,12 +189,7 @@ class BernoulliGLMwReg(BernoulliGLM):
         group_means, group_stds = self.calc_group_statistics()
         logger.debug(f'Mean weights by neuron groups: {list(group_means)}; std: {list(group_stds)}.')
 
-# the following implements glm.fit() function with gradient descent via deep learning library torch.
-import torch
-import torch.nn as nn
-import torch.distributions as dist
-from torch.utils.data import DataLoader
-device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
 
 class BernoulliGLMPyTorch(nn.Module):
     def __init__(self,
@@ -328,36 +336,45 @@ class BernoulliGLMPyTorch(nn.Module):
         except:
             self.curr_epoch = 0
         best_epoch_i = self.curr_epoch
+        is_sparse = False
             
         if isinstance(y, np.ndarray) or isinstance(X, np.ndarray):
             X = torch.FloatTensor(X)
             y = torch.FloatTensor(y)
-        
-        if X.is_cuda or y.is_cuda:
-            logger.info('Data stored in VRAM.')
-        else:
-            logger.info('Data stored in RAM.')
             
-        if X.is_sparse or y.is_sparse:
-            logger.info('Detected sparse Tensor.')
-        else:
-            logger.info('Detected dense Tensor.')
-        
         if batch_size == -1:
             batch_size = int(np.prod(y.shape))
         elif batch_size == 'auto':
-            batch_size = int(np.prod(y.shape)/100) # type: ignore
+            batch_size = int(np.prod(y.shape)/1000) # type: ignore
         else:
             assert isinstance(batch_size, int)
             assert batch_size <= int(np.prod(y.shape))
             assert batch_size > 0
+            
         num_batches = int(np.ceil(int(np.prod(y.shape)/batch_size))) # type: ignore
-        logger.info(f'Training with {num_batches} of batch size {batch_size}.')
+        logger.info(f'Training with {num_batches} batches of batch size {batch_size}.')
         
+        if isinstance(X, coo_matrix):
+            logger.info('Detected scipy sparse matrix.')
+            sparse_dataset = SparseDataset(X.T, y.T)
+            dataloader = DataLoader(sparse_dataset, batch_size=batch_size,
+                                        collate_fn=sparse_batch_collate,
+                                        shuffle=True, drop_last=False)
+            is_sparse = True
+            logger.debug('Successfully created sparse dataloader')
+        elif isinstance(X, torch.Tensor):
+            if X.is_sparse:
+                raise NotImplementedError('Detected torch sparse matrix. Batching is not implemeted')
+            else:
+                dataset = CustomDataset(X.T, y.T)
+                dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False)
+                logger.debug('Successfully created dense dataloader')
+                
         if verbose > -1:
-            with torch.no_grad(): 
-                init_log_like, init_regs = self.calc_log_likelihood_w_reg(X.to(device), y.to(device), return_components=True)
-                logger.debug(f'Training GLM with PyTorch. Initial log like: {init_log_like.cpu().float()}, loss {init_log_like.cpu().float()+np.sum(list(init_regs.cpu().numpy()))}, of which regs {list(init_regs.cpu().numpy())} respectively for {self.accepted_regs}.')
+            with torch.no_grad():
+                if not is_sparse:
+                    init_log_like, init_regs = self.calc_log_likelihood_w_reg(X.to(device), y.to(device), return_components=True)
+                    logger.debug(f'Training GLM with PyTorch. Initial log like: {init_log_like.cpu().float()}, loss {init_log_like.cpu().float()+np.sum(list(init_regs.cpu().numpy()))}, of which regs {list(init_regs.cpu().numpy())} respectively for {self.accepted_regs}.')
             
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay)
@@ -369,15 +386,31 @@ class BernoulliGLMPyTorch(nn.Module):
             
             optimizer.zero_grad()
             epoch_loss = 0
-            # loss = self.calc_log_likelihood_w_reg(X, y)
-            self.curr_epoch += 1
             
-            for batch_i in range(num_batches):
+            self.curr_epoch += 1
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            for batch_i, (batch_x, batch_y) in tqdm(enumerate(dataloader)):
                 if verbose > 2:
                     print(f'Running batch {batch_i+1}/{num_batches}', end='\r')
                 
-                batch_x, batch_y = X[int(batch_i*batch_size):int(batch_i+1)*batch_size].to(device), y[int(batch_i*batch_size):int(batch_i+1)*batch_size].to(device)
-                
+                # convert to torch tensor and send to gpu
+                # if is_sparse:
+                #     batch_x = torch.sparse.FloatTensor(
+                #         torch.stack([torch.from_numpy(batch_x.row.astype(np.int32)).to(torch.long), torch.from_numpy(batch_x.col.astype(np.int32)).to(torch.long)], dim=0),
+                #         torch.from_numpy(batch_x.data.astype(np.float32)).to(torch.float),
+                #         torch.Size(batch_x.shape)
+                #     ).to(device)
+                    
+                #     batch_y = torch.sparse.FloatTensor(
+                #         torch.stack([torch.from_numpy(batch_y.row.astype(np.int32)).to(torch.long), torch.from_numpy(batch_y.col.astype(np.int32)).to(torch.long)], dim=0),
+                #         torch.from_numpy(batch_y.data.astype(np.float32)).to(torch.float),
+                #         torch.Size(batch_y.shape)
+                #     ).to(device)
+                # else:
+                batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+                    
                 optimizer.zero_grad()
                 batch_loss = self.calc_log_likelihood_w_reg(batch_x, batch_y)
                 batch_loss.backward() # type: ignore
@@ -386,8 +419,9 @@ class BernoulliGLMPyTorch(nn.Module):
                 epoch_loss += batch_loss.item() # type: ignore
             
             if epoch_loss < self.best_loss:
-                with torch.no_grad():
-                    best_log_like, best_regs = self.calc_log_likelihood_w_reg(X.to(device), y.to(device), return_components=True)
+                if not is_sparse:
+                    with torch.no_grad():
+                        best_log_like, best_regs = self.calc_log_likelihood_w_reg(X.to(device), y.to(device), return_components=True)
                     
                 best_epoch_i = self.curr_epoch
                 self.best_weight = copy.copy(self.linear.weight.data)
@@ -396,12 +430,19 @@ class BernoulliGLMPyTorch(nn.Module):
                 self.best_regs = best_regs
             
             if verbose >= 2:
-                logger.debug(f'Step {self.curr_epoch}. Log like: {self.calc_log_likelihood(X.to(device), y.to(device)).cpu().float()},  loss: {epoch_loss}')
+                if not is_sparse:
+                    logger.debug(f'Step {self.curr_epoch}. Log like: {self.calc_log_likelihood(X.to(device), y.to(device)).cpu().float()},  loss: {epoch_loss}')
+                else:
+                    logger.debug(f'Step {self.curr_epoch}.  Loss {epoch_loss}.')
+                        
             elif verbose == 1:
                 if (self.curr_epoch) % int(n_iter / 20) == 0:
-                    with torch.no_grad():
-                        epoch_log_like, epoch_regs= self.calc_log_likelihood_w_reg(X.to(device), y.to(device), return_components=True)
-                    logger.debug(f'Step {self.curr_epoch}. Log like: {epoch_log_like.cpu().float()}, loss {epoch_log_like.cpu().float()+np.sum(list(epoch_regs.cpu().numpy()))}, of which regs {list(epoch_regs.cpu().numpy())} respectively for {self.accepted_regs}.')
+                    if not is_sparse:
+                        with torch.no_grad():
+                            epoch_log_like, epoch_regs= self.calc_log_likelihood_w_reg(X.to(device), y.to(device), return_components=True)
+                        logger.debug(f'Step {self.curr_epoch}. Log like: {epoch_log_like.cpu().float()}, loss {epoch_log_like.cpu().float()+np.sum(list(epoch_regs.cpu().numpy()))}, of which regs {list(epoch_regs.cpu().numpy())} respectively for {self.accepted_regs}.')
+                    else:
+                        logger.debug(f'Step {self.curr_epoch}.  Loss {epoch_loss}.')
             
             # loss.backward() # type: ignore
             # optimizer.step()
@@ -554,7 +595,7 @@ class BernoulliGLMwHistoryMultiSessionPyTorch(BernoulliGLMPyTorch):
         
         # first, create (history + 1) * n_PAG zeros 
         y_hat_hist_sampled = torch.vstack(
-            [torch.zeros(self.history + 1, self.n_sessions).to(device),
+            [torch.zeros(self.history, self.n_sessions).to(device),
              y_hat_naive]) # now (n_bins + history + 1, n_PAG_cells)
         del y_hat_naive
         
@@ -577,6 +618,81 @@ class BernoulliGLMwHistoryMultiSessionPyTorch(BernoulliGLMPyTorch):
         with torch.no_grad():
             return torch.vstack([torch.flip(self.history_filters[c].weight.data, [1]) for c in range(self.n_sessions)]) # (n_PAG_cells, history)
         
+class CustomDataset(Dataset):
+    '''
+    Dataset class for creating iterable dataloader
+    '''
+    def __init__(self, X, Y):
+        self.inputs = X
+        self.labels = Y
+
+    def __len__(self):
+        return len(self.inputs)
+    
+    def __getitem__(self, idx):
+        input = self.inputs[idx,:]
+        label = self.labels[idx,:]
+        return input, label
+    
+class SparseDataset(Dataset):
+    """
+    Custom Dataset class for scipy sparse matrix
+    """
+    def __init__(self, data:Union[np.ndarray, coo_matrix, csr_matrix], 
+                 targets:Union[np.ndarray, coo_matrix, csr_matrix], 
+                 transform:bool = None):
+        
+        # Transform data coo_matrix to csr_matrix for indexing
+        if type(data) == coo_matrix:
+            self.data = data.tocsr()
+        else:
+            self.data = data
+            
+        # Transform targets coo_matrix to csr_matrix for indexing
+        if type(targets) == coo_matrix:
+            self.targets = targets.tocsr()
+        else:
+            self.targets = targets
+        
+        self.transform = transform # Can be removed
+
+    def __getitem__(self, index:int):
+        return self.data[index], self.targets[index]
+
+    def __len__(self):
+        return self.data.shape[0]
+
+def sparse_coo_to_tensor(coo:coo_matrix):
+    """
+    Transform scipy coo matrix to pytorch sparse tensor
+    """
+    values = coo.data
+    indices = np.vstack((coo.row, coo.col))
+    shape = coo.shape
+
+    i = torch.LongTensor(indices)
+    v = torch.FloatTensor(values)
+    s = torch.Size(shape)
+
+    return torch.sparse.FloatTensor(i, v, s)
+    
+def sparse_batch_collate(batch:list): 
+    """
+    Collate function which to transform scipy coo matrix to pytorch sparse tensor
+    """
+    data_batch, targets_batch = zip(*batch)
+    if type(data_batch[0]) == csr_matrix:
+        data_batch = vstack(data_batch).tocoo()
+        data_batch = sparse_coo_to_tensor(data_batch)
+    else:
+        data_batch = torch.FloatTensor(data_batch)
+
+    if type(targets_batch[0]) == csr_matrix:
+        targets_batch = vstack(targets_batch).tocoo()
+        targets_batch = sparse_coo_to_tensor(targets_batch)
+    else:
+        targets_batch = torch.FloatTensor(targets_batch)
+    return data_batch, targets_batch
 
 if __name__ == '__main__':
 
