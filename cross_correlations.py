@@ -6,21 +6,96 @@ import scipy.stats as stats
 from torch import threshold
 from tqdm import tqdm
 import pickle
-from utils import *
-            
-def xcorr(x, y, mode='summed'):
-    # x: input neuron signal, of shape (n_input_neurons, bins)
-    # y: pag signal, of shape (bins)
-    corr, lags = [], []
-    
-    for n in tqdm(range(x.shape[0])):
-        if mode == 'summed':
-            corr.append(signal.correlate(x[n,:], y, mode='same'))
-        lags.append(signal.correlation_lags(len(x[n,:]), len(y), mode='same'))
-        
-    return lags, corr
+from utils import sparsify_spike_train, extract_sim_as_df, extract_timings, load_dfs
+from scipy import sparse
+from pathlib import Path
 
+def compute_cross_corr_single_output(binarised_spike_trains_pre, binarised_spike_train_post, max_lag, corr_type = 'pearson'):
+    
+    n_input_neurons = binarised_spike_trains_pre.shape[0]
+    
+    if len(binarised_spike_train_post.shape) == 2:
+        if binarised_spike_train_post.shape[0] == 1:
+            binarised_spike_train_post = binarised_spike_train_post.squeeze()
+        else:
+            raise ValueError('Function must be called with single output neuron')
+    
+    corrs = np.zeros(n_input_neurons, max_lag*2+1)
+    
+    for i in tqdm(range(n_input_neurons)):
+        if n_input_neurons > 1:
+            binarised_spike_train_pre = binarised_spike_trains_pre[i]
+        else:
+            binarised_spike_train_pre = binarised_spike_trains_pre
+        
+        if corr_type == 'pearson':
+            correlation = [np.corrcoef(binarised_spike_train_pre,
+                                    np.roll(binarised_spike_train_post, lag))[0,1]
+                        for lag in range(-max_lag, max_lag + 1)]
+        elif corr_type == 'summed':
+            correlation = signal.correlate(binarised_spike_train_pre, binarised_spike_train_post, mode='same')
+            correlation = correlation[len(correlation)/2-max_lag:len(correlation)/2+max_lag]
             
+        corrs[i, :] = correlation
+    
+    return corrs
+
+
+def compute_pairwise_cross_corr_sparse(spike_train_pre, spike_train_post, max_lag):
+    
+    spike_train_pre = sparsify_spike_train(spike_train_pre, 0, np.inf)
+    spike_train_post = sparsify_spike_train(spike_train_post, 0, np.inf)
+    
+    n_bins = int(np.max([np.max(x[:,1]) for x in [spike_train_pre, spike_train_post]]))+1
+                             
+    def to_scipy_sparse(sparse_binary, n_bins): 
+        assert max(sparse_binary[:,1].astype(int)) < n_bins
+        return sparse.coo_array((sparse_binary[:,2], (sparse_binary[:,0].astype(int), sparse_binary[:,1].astype(int))), shape = (1, n_bins))
+
+    correlation = np.zeros(max_lag*2+1)
+    
+    for lag_i, lag in enumerate(range(-max_lag, max_lag + 1)):
+
+        if lag >= 0:
+            # for positive lags, shift the presynaptic spike trains to the future 
+            spike_train_pre_rolled = spike_train_pre.copy()
+            spike_train_pre_rolled[:,1]+=lag
+            spike_train_post_rolled = spike_train_post
+        elif lag < 0: 
+             # for negative lags, shift the postsynaptic spike trains to the future 
+             spike_train_post_rolled = spike_train_post.copy()
+             spike_train_post_rolled[:,1]-=lag
+             spike_train_pre_rolled = spike_train_pre
+             
+        coeff = scipy_sparse_pearson_corr(to_scipy_sparse(spike_train_pre_rolled, n_bins+np.abs(lag)),
+                                          to_scipy_sparse(spike_train_post_rolled, n_bins+np.abs(lag)))
+        correlation[lag_i] = coeff
+    
+    return correlation
+    
+def scipy_sparse_pearson_corr(A, B=None, sparse_format = 'coo'):
+    'inputs are scipy sparse matrices'
+    
+    if B is not None:
+        A = sparse.vstack((A, B), format=sparse_format)
+        
+    A = A.astype(np.float64)
+    n = A.shape[1]
+
+    # Compute the covariance matrix
+    rowsum = A.sum(1)
+    centering = rowsum.dot(rowsum.T.conjugate()) / n
+    C = (A.dot(A.T.conjugate()) - centering) / (n - 1)
+
+    # The correlation coefficients are given by
+    # C_{i,j} / sqrt(C_{i} * C_{j})
+    d = np.diag(C)
+    coeffs = C / np.sqrt(np.outer(d, d))
+    
+    return coeffs[0,1]
+
+
+
 def peak_detection(corr, lags, threshold=0.001):
     peaks = []
     length = len(lags)
@@ -42,65 +117,8 @@ def peak_detection_multi_neurons(corrs, lags, threshold=0.001):
         all_peaks.append(peaks)
     all_peaks_flattened = [x for peaks in all_peaks for x in peaks]
     return np.unique(np.array(all_peaks_flattened), return_counts=True)
-    
-def compute_cross_corr_single_output(input_spike_data, output_spike_data, max_lag):
-    n_input_neurons = input_spike_data.shape[0]
-    
-    if len(output_spike_data.shape) == 2:
-        if output_spike_data.shape[0] == 1:
-            output_spike_data = output_spike_data.squeeze()
-        else:
-            raise ValueError('Function must be called with single output neuron')
-    
-    corrs = {}
-    
-    for i in range(n_input_neurons):
-        if n_input_neurons > 1:
-            input_spike_i = input_spike_data[i]
-        else:
-            input_spike_i = input_spike_data
-        correlation = [np.correlate(input_spike_i, 
-                                    np.concatenate(
-                                        (np.zeros(lag), np.roll(output_spike_data, lag)[lag:])
-                                                   ))[0]
-                       for lag in range(0, max_lag + 1)]
-        corrs[f'Input neuron {i}'] = correlation
-    
-    return corrs
 
-def compute_cross_corr_single_output_pearson(input_spike_data, output_spike_data, max_lag, use_torch=False):
-    n_input_neurons = input_spike_data.shape[0]
-    
-    if len(output_spike_data.shape) == 2:
-        if output_spike_data.shape[0] == 1:
-            output_spike_data = output_spike_data.squeeze()
-        else:
-            raise ValueError('Function must be called with single output neuron')
-    
-    corrs = {}
-    
-    for i in tqdm(range(n_input_neurons)):
-        if n_input_neurons > 1:
-            input_spike_i = input_spike_data[i]
-        else:
-            input_spike_i = input_spike_data
-        
-        if use_torch:
-            correlation = [torch.corrcoef(input_spike_i,
-                                    #    np.concatenate(
-                                    #         (np.zeros(lag), np.roll(output_spike_data, lag)[lag:]))
-                                    torch.roll(output_spike_data, lag))[0,1] # type: ignore
-                        for lag in range(-max_lag, max_lag + 1)]
-        else:
-            correlation = [np.corrcoef(input_spike_i,
-                                    #    np.concatenate(
-                                    #         (np.zeros(lag), np.roll(output_spike_data, lag)[lag:]))
-                                    np.roll(output_spike_data, lag))[0,1]
-                        for lag in range(-max_lag, max_lag + 1)]
-        
-        corrs[f'Input neuron {i}'] = correlation
-    
-    return corrs
+
 
 def check_if_inh_and_connected(i, n_neurons_per_group, conns, pag_idx, thresh=64):
     '''
@@ -117,73 +135,96 @@ def check_if_inh_and_connected(i, n_neurons_per_group, conns, pag_idx, thresh=64
                 return i > thresh -1, conns[n][pag_idx, i] >0
 
 
-def plot_cross_corr(corrs, max_lag, conns, n_neurons_per_group, n_excitatory_cells_per_group=([64,64,64,64,64]), pag_idx=0):
+# def plot_cross_corr(corrs, max_lag, conns, n_neurons_per_group, n_excitatory_cells_per_group=([64,64,64,64,64]), pag_idx=0):
+#     lags = np.arange(-max_lag, max_lag + 1)
+    
+#     plt.figure()
+    
+#     # for i, corr in enumerate(corrs):
+#     #     is_inh, is_connected = check_if_inh_and_connected(i, n_neurons_per_group, conns, pag_idx, thresh=64) # type: ignore
+        
+#     #     if is_inh:
+#     #         c = 'r'
+#     #     else:
+#     #         c = 'b' if is_connected else 'g'
+            
+#     #     plt.plot(lags, corr, c=c)
+    
+#     plt.xlabel('Lag')
+#     plt.ylabel('Cross-Correlation')
+#     plt.title('Cross-Correlation between Input Neurons and Output Neuron')
+#     # plt.legend()
+#     plt.show()
+    
+#     for group_i, n_neurons in enumerate(n_neurons_per_group):
+#         for j in range(n_neurons):
+#             cumulative_index = int(np.concatenate((np.zeros(1), np.cumsum(n_neurons_per_group)))[group_i] + j)
+#             if j > n_excitatory_cells_per_group[group_i] -1:
+#                 c = 'r'
+#             else:
+#                 c = 'b'
+#             # plt.plot(lags[cumulative_index][int(lags[0].shape[0]/2-max_lag):int(lags[0].shape[0]/2+max_lag)], corr[cumulative_index][int(lags[0].shape[0]/2-max_lag):int(lags[0].shape[0]/2+max_lag)], c=c)
+#             plt.plot(lags, corrs[cumulative_index,:], c=c)
+            
+
+def plot_cross_corr(corrs, max_lag, conns_for_one_pag):
     lags = np.arange(-max_lag, max_lag + 1)
     
     plt.figure()
     
-    for i, corr in enumerate(corrs.values()):
-        is_inh, is_connected = check_if_inh_and_connected(i, n_neurons_per_group, conns, pag_idx, thresh=64) # type: ignore
-        
-        if is_inh:
-            c = 'r'
-        else:
-            c = 'b' if is_connected else 'g'
-            
-        plt.plot(lags, corr, c=c)
-    
     plt.xlabel('Lag')
     plt.ylabel('Cross-Correlation')
     plt.title('Cross-Correlation between Input Neurons and Output Neuron')
-    # plt.legend()
-    plt.show()
     
-    for group_i, n_neurons in enumerate(n_neurons_per_group):
-        for j in range(n_neurons):
-            cumulative_index = int(np.concatenate((np.zeros(1), np.cumsum(n_neurons_per_group)))[group_i] + j)
-            if j > n_excitatory_cells_per_group[group_i] -1:
-                c = 'r'
+    if conns_for_one_pag is not None: 
+        c = np.select([conns_for_one_pag==0, conns_for_one_pag>0, conns_for_one_pag<0], ['b','g','r'])
+    else:
+        c = 'k'
+    
+    corrs = corrs - np.median(corrs[:,0:int(max_lag*0.75)], axis = 1)[:, np.newaxis]
+    plt.plot(lags, corrs.T, c=c)            
+            
+#%%
+
+def run_cross_corrs(read_path, save_folder, simulation, plot=True, pag_i = None):
+    
+    presyn_df, pag_df, last_spike_time = load_dfs(read_path, simulation = simulation, n_PAG_to_use=1)
+    if pag_i is not None: pag_df = pag_df.iloc[[pag_i]]
+    
+    if simulation: 
+        with open((read_path/'conns_inh.pkl'), 'rb') as f: conns = pickle.load(f)
+        conns = np.hstack(conns)
+        
+    max_lag = 50
+    
+    for pag_i, spike_train_post in enumerate(pag_df['spikeTimes']):
+        corrs = np.zeros((len(presyn_df), max_lag*2+1))
+        
+        for input_neuron_i, spike_train_pre in enumerate(presyn_df['spikeTimes']):
+            correlation = compute_pairwise_cross_corr_sparse(spike_train_pre, spike_train_post, max_lag)
+            corrs[input_neuron_i, :] = correlation
+            
+        if plot:
+            if simulation: 
+                plot_cross_corr(corrs, max_lag, conns[pag_i,:])
             else:
-                c = 'b'
-            # plt.plot(lags[cumulative_index][int(lags[0].shape[0]/2-max_lag):int(lags[0].shape[0]/2+max_lag)], corr[cumulative_index][int(lags[0].shape[0]/2-max_lag):int(lags[0].shape[0]/2+max_lag)], c=c)
-            plt.plot(lags, list(corrs.values())[cumulative_index], c=c)
+                plot_cross_corr(corrs, max_lag, None)
+        
+        if simulation:
+            session_name = read_path.stem
+        else:
+            session_name = read_path.stem[:6]
             
-            
+        if save_folder is not None: np.save((save_folder / (session_name + '_cross_corrs_pag' + pag_i + '.npy')), corrs)
+
 if __name__ == '__main__':
-
-    sim_data_path = './sim/save/pagsim_w_stimuli_600s_inh32/'
-    brain_regions = [
-                    'VMH',
-                    'ACC',
-                    'IC',
-                    'SC',
-                    'PMD'
-                    ]
-    with open(f'{sim_data_path}conns.pkl', 'rb') as f:
-        conns = pickle.load(f)
     
-    presyn_binned = np.load(sim_data_path+'presyn_binned.npy')
+    read_path = Path(r'Y:\Daniel_npx_modelling\pagsim_w_stimuli_600s_inh32')
+    read_path = r'Y:/Daniel_npx_modelling/data/1103076/curated/single_unit_only/230718_JRCcurated_npx_all_cutGLM_goods_spikePropertiesByClust.json'
+    save_folder = None
+    simulation=False
+    pag_i = None    
+    plot = True
     
-    bin_size = 0.001
-    n_excitatory_cells_per_group = [64, 64, 64, 64, 64]
-    n_PAG_to_use = 1
-    n_input_neurons, n_bins = presyn_binned.shape
-    n_neurons_per_group = np.load(sim_data_path+'n_neurons_per_group.npy')
-    _total_length = n_bins / 1000
-    pag_df = extract_sim_as_df(sim_data_path, 'PAG')
-    pag_timings = extract_timings(pag_df, 'PAG')
-    pag_binned_spikes = bin_spikes(pag_timings, start_time=0, end_time=_total_length, bin_size=0.001)[:n_PAG_to_use]
-    print(f'Average PAG firing rate: {np.sum(pag_binned_spikes) / pag_binned_spikes.shape[0] / _total_length} Hz.') # type: ignore
-
-    print(n_neurons_per_group)
-
-    max_lag = 10
-    lags = np.arange(-max_lag, max_lag + 1)
-    for p in range(n_PAG_to_use):
-        # lags, corr = xcorr(presyn_binned[:,:], pag_binned_spikes[p,:])
-       
-        corrs = compute_cross_corr_single_output_pearson(presyn_binned, pag_binned_spikes[p,:], max_lag)
-        plot_cross_corr(corrs, max_lag, conns, n_neurons_per_group, n_excitatory_cells_per_group=([64,64,64,64,64]),)
+    run_cross_corrs(read_path, save_folder, simulation, plot, pag_i)
     
-
-

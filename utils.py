@@ -14,7 +14,39 @@ import pickle
 from pathlib import Path
 import json
 
-# utils for dealing with simulation data
+#%% utils for dealing with simulation data
+
+def load_dfs(read_path, simulation, n_PAG_to_use = 'all'):
+    '''
+    read_path : 
+        if simulation is True: read_path is a folder
+        if not simulation: read_path is a file path
+
+    '''    
+    if simulation:
+        presyn_df, _, _ = extract_all_presynaptic_simulation_timings(read_path, has_inh=True, brain_regions=['VMH','ACC', 'IC','SC','PMD'])
+
+        pag_df = extract_sim_as_df(read_path, 'PAG')
+        
+        if n_PAG_to_use != 'all':
+            pag_df = pag_df[:n_PAG_to_use]
+        
+        
+    else:
+        
+        df = pd.read_json(read_path, orient = 'split') # ['spikeTimesDev3_cut', 'cleaned_brain_region', 'brain_region']
+        df = df.rename(columns = {'spikeTimesDev3_cut': 'spikeTimes'})
+        
+        presyn_df = df.loc[df['cleaned_brain_region'].isin(['SC', 'IC', 'VMH', 'ACC', 'PMd'])]
+        pag_df = df.loc[df['cleaned_brain_region'].isin(['PAG'])]
+        
+        if n_PAG_to_use != 'all':
+            pag_df = pag_df.iloc[:n_PAG_to_use]        
+    
+    last_spike_time = np.max([np.max([np.max(timings) for timings in df]) for df in [presyn_df['spikeTimes'], pag_df['spikeTimes']]])
+    
+    return presyn_df, pag_df, last_spike_time
+
     
 def extract_rec_as_df(fd):
     ''' THIS FUNCTION DOESNT SEEM TO BE USED. DELETE?
@@ -84,29 +116,26 @@ def extract_all_presynaptic_simulation_timings(source_folder, has_inh, brain_reg
 
     for i, brain_region in enumerate(brain_regions):
         if has_inh:
-            for j in inh_split_idx[i]: # type: ignore
-                inh_df.at[f'InhNeuron{j}', 'brain_region'] = brain_region # type: ignore
-            all_dfs[i] = pd.concat((all_dfs[i], inh_df.iloc[inh_split_idx[i]])) # type: ignore
-        
-        timings = extract_timings(all_dfs[i], brain_region)
-        all_timings.append(timings)
-    
-    if (source_folder /'conns_inh.pkl').exists():
-        with open((source_folder /'conns_inh.pkl'), 'rb') as f:
-            conns = pickle.load(f)
-    else:
-        conns = [np.nan_to_num(np.load((source_folder / ('connectivity_' + brain_region.lower() + '2pag.npy'))),  nan=0.0).T * 1e9 for brain_region in brain_regions]
-        
-        if has_inh:
-            inh_conns = -np.nan_to_num(np.load((source_folder / 'connectivity_inh2pag.npy')),  nan=0.0).T * 1e9
-            for i, brain_region in enumerate(brain_regions):
-                conns[i] = np.hstack((conns[i], inh_conns[:,inh_split_idx[i]])) # type: ignore
-                assert conns[i].shape[1] == len(all_dfs[i])
+            inh_df_temp = inh_df.iloc[inh_split_idx[i]].copy()
+            inh_df_temp.index=[f'{brain_region}_IN{j}' for j in inh_split_idx[i]]
+            inh_df_temp['brain_region'] = brain_region
                 
-        with open((source_folder /'conns_inh.pkl'), 'wb') as f:
-                pickle.dump(conns, f)
-
-    return all_timings, _total_length, conns
+            all_dfs[i] = pd.concat((all_dfs[i], inh_df_temp)) # type: ignore
+    
+    conns = [np.nan_to_num(np.load((source_folder / ('connectivity_' + brain_region.lower() + '2pag.npy'))),  nan=0.0).T * 1e9 for brain_region in brain_regions]
+    
+    if has_inh:
+        inh_conns = -np.nan_to_num(np.load((source_folder / 'connectivity_inh2pag.npy')),  nan=0.0).T * 1e9
+        for i, brain_region in enumerate(brain_regions):
+            conns[i] = np.hstack((conns[i], inh_conns[:,inh_split_idx[i]])) # type: ignore
+            assert conns[i].shape[1] == len(all_dfs[i])
+            
+    with open((source_folder /'conns_inh.pkl'), 'wb') as f:
+            pickle.dump(conns, f)
+    
+    all_dfs = pd.concat(all_dfs)
+    
+    return all_dfs, _total_length, conns
 
 def check_if_inh_and_connected(i, n_neurons_per_group, conns, pag_idx, thresh=64):
     '''
@@ -122,7 +151,19 @@ def check_if_inh_and_connected(i, n_neurons_per_group, conns, pag_idx, thresh=64
                 i = i - cum_neurons_per_group[n-1]
                 return i > thresh -1, conns[n][pag_idx, i] >0
 
+#%% sparse arrays
 
+def sparsify_spike_train(spike_train, start_time, end_time, bin_size=0.001):
+    if not isinstance(spike_train, np.ndarray): spike_train = np.array(spike_train)
+    time_bin_idxs = np.floor(spike_train[(spike_train > start_time) & (spike_train < end_time+bin_size)]/bin_size).astype(int)
+    sparse_binary = np.zeros((len(time_bin_idxs), 3)) 
+    sparse_binary[:, 0] = 0 
+    sparse_binary[:, 1] = time_bin_idxs
+    sparse_binary[:, 2] = 1 
+    
+    return sparse_binary
+
+#%%
 
 def normalise_array(array):
     if isinstance(array, torch.Tensor):
@@ -231,3 +272,29 @@ def plot_cross_corr(corrs, max_lag, conns, n_neurons_per_group, n_excitatory_cel
             # plt.plot(lags[cumulative_index][int(lags[0].shape[0]/2-max_lag):int(lags[0].shape[0]/2+max_lag)], corr[cumulative_index][int(lags[0].shape[0]/2-max_lag):int(lags[0].shape[0]/2+max_lag)], c=c)
             plt.plot(lags, list(corrs.values())[cumulative_index], c=c)
             
+# if __name__ == '__main__':
+#     read_path = './sim/save/pagsim_w_stimuli_600s_inh32/'
+#     input_sparse, output_sparse = aggregate_multiple_sparse_matrices(read_path)
+    
+#     from glm import BernoulliGLMPyTorch
+
+#     n_neurons_per_group = np.load(read_path + 'n_neurons_per_group.npy')
+#     glm = BernoulliGLMPyTorch(
+#     group_names=['VMH',
+#                 'ACC',
+#                 'IC',
+#                 'SC',
+#                 'PMD'
+#                 ],
+#     n_neurons_per_group=n_neurons_per_group,
+#     link_fn='logistic',
+#     n_sessions=16,
+#     regs = ['weights_within_group',
+#             'weights_sparsity'],
+#     reg_params={'weights_within_group':100,
+#                 'weights_sparsity':100,
+#                 }, # type: ignore
+#     ).to('cuda')
+        
+
+#     glm.fit(input_sparse.T, output_sparse.T, n_iter=20000, lr=1e-3, verbose=3, decay=0.9999, batch_size=1024)
